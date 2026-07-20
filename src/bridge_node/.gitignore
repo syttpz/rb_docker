@@ -1,0 +1,29 @@
+# Build artifacts (CMake / ROS2)
+build/
+install/
+log/
+compile_commands.json
+
+# Editor / tooling caches
+.cache/
+.vscode/
+.idea/
+
+# Vim swap files
+*.swp
+*.swo
+*~
+
+# Compiled objects / libraries
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.a
+
+.DS_Store
+
+# real Corelink credentials -- config/credentials.yaml.example is the
+# tracked template, this is the local file with actual values
+config/credentials.yaml

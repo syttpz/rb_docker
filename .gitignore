@@ -1,0 +1,22 @@
+# ROS2 / colcon build artifacts (also see src/bridge_node/.gitignore, which
+# covers build/install/log for that package specifically)
+build/
+install/
+log/
+compile_commands.json
+
+# rtabmap map outputs written at runtime -- large binary data, not source
+src/maps/*
+!src/maps/.gitkeep
+
+# local Claude Code settings (machine-specific, not shared)
+.claude/settings.local.json
+
+# editor / OS cruft
+.vscode/
+.idea/
+.cache/
+.DS_Store
+*.swp
+*.swo
+*~

@@ -1,0 +1,26 @@
+teleop_twist_joy_node:
+  ros__parameters:
+    # DualSense mapping via joy (SDL) node:
+    #   axes:    0 = left stick X, 1 = left stick Y, 2 = right stick X,
+    #            3 = right stick Y, 4 = L2, 5 = R2
+    #   buttons: 0 = cross, 1 = circle, 2 = square, 3 = triangle,
+    #            4 = share, 5 = PS, 6 = options, 7 = L3, 8 = R3,
+    #            9 = L1, 10 = R1, 11-14 = dpad
+    axis_linear:
+      x: 1              # left stick up/down
+    scale_linear:
+      x: 0.3
+    scale_linear_turbo:
+      x: 0.6
+
+    axis_angular:
+      yaw: 0            # left stick left/right
+    scale_angular:
+      yaw: 1.0
+    scale_angular_turbo:
+      yaw: 1.5
+
+    # stick drives directly (no dead-man switch); hold R1 for turbo
+    require_enable_button: false
+    enable_button: 9
+    enable_turbo_button: 10

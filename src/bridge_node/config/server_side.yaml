@@ -1,0 +1,17 @@
+ros2_bridge_node:
+  ros__parameters:
+    corelink.endpoint: "corelink.hsrn.nyu.edu"
+    corelink.port: 20012
+    # corelink.username / corelink.password intentionally not here -- see
+    # config/credentials.yaml.example, loaded as a separate (gitignored)
+    # params file at launch time so real creds never land in git.
+    # see robot_side.yaml for why this is "Chalktalk" and not "robot1"
+    corelink.workspace: "Chalktalk"
+    corelink.data_protocol: "udp"
+
+    topic.name: "/chatter"
+    topic.type: "std_msgs/msg/String"
+    # This side receives from Corelink and republishes /chatter locally
+    # in the (Dockerized) server-side ROS2 graph. Pair with
+    # robot_side.yaml (direction: to_corelink) running on the robot.
+    topic.direction: "from_corelink"

@@ -1,0 +1,82 @@
+#     docker compose build          # build image
+#     docker compose up             # start
+#     docker compose up -d          # start in the backend
+#     docker compose down           # stop
+#     docker compose exec robot bash  # exist terminal
+
+services:
+  robot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: eddyhu217/dt_env:rb
+    container_name: robot
+    network_mode: host
+    privileged: true
+    volumes:
+      - /dev:/dev
+      - /dev/bus/usb:/dev/bus/usb
+      - ./src:/root/ros2_ws/src
+    environment:
+      - ROS_DOMAIN_ID=0
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    command: bash
+
+  camera:
+    image: eddyhu217/dt_env:rb
+    container_name: realsense_camera
+    network_mode: host
+    privileged: true
+    volumes:
+      - /dev:/dev
+      - /dev/bus/usb:/dev/bus/usb
+    environment:
+      - ROS_DOMAIN_ID=0
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    restart: unless-stopped
+    # camera
+    command: >
+      ros2 launch realsense2_camera rs_launch.py
+      depth_module.depth_profile:=640x480x15
+      rgb_camera.color_profile:=640x480x15
+      enable_gyro:=false
+      enable_accel:=false
+    depends_on:
+      - robot
+
+  # foxglove websocket bridge -> connect Foxglove to ws://<pi-ip>:8765
+  foxglove:
+    image: eddyhu217/dt_env:rb
+    container_name: foxglove_bridge
+    network_mode: host
+    ipc: host
+    volumes:
+      - /dev/shm:/dev/shm
+    environment:
+      - ROS_DOMAIN_ID=0
+    restart: unless-stopped
+    command: ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765
+
+  # dualsense teleop -> /cmd_vel
+  # start with: docker compose --profile teleop up -d teleop
+  teleop:
+    image: eddyhu217/dt_env:rb
+    container_name: dualsense_teleop
+    network_mode: host
+    privileged: true
+    volumes:
+      - /dev:/dev
+      - /dev/bus/usb:/dev/bus/usb
+    environment:
+      - ROS_DOMAIN_ID=0
+    restart: unless-stopped
+    profiles:
+      - teleop
+    command: ros2 launch /robot/teleop/dualsense_teleop.launch.py
+    depends_on:
+      - robot

@@ -40,6 +40,24 @@ void CorelinkTransport::connect(ReadyCallback on_ready)
             },
             [this, on_ready](corelink::core::network::channel_id_type channel_id)
             {
+                // The server pushes server_callback_on_subscribed/on_stale/
+                // on_dropped notifications on this control channel whenever
+                // *anyone* subscribes/goes stale/drops (e.g. a receiver
+                // elsewhere subscribing to one of our sender streams). If
+                // nothing is registered for a given push type, the client
+                // library routes it through the generic control-channel
+                // on_error path above, which -- since it reuses on_ready --
+                // looks exactly like a fatal connect failure even though the
+                // node is working fine. Register no-op handlers for the ones
+                // we don't otherwise care about so they don't masquerade as
+                // connection errors.
+                auto noop = [](corelink::core::network::channel_id_type, const std::string &,
+                        std::shared_ptr<corelink::client::request_response::responses::corelink_server_response_base>)
+                {};
+                m_client.request(channel_id, corelink::client::corelink_functions::server_callback_on_subscribed, nullptr, noop);
+                m_client.request(channel_id, corelink::client::corelink_functions::server_callback_on_stale, nullptr, noop);
+                m_client.request(channel_id, corelink::client::corelink_functions::server_callback_on_dropped, nullptr, noop);
+
                 // Control channel connected. Now authenticate.
                 m_client.request(
                         channel_id,
@@ -88,13 +106,8 @@ void CorelinkTransport::createSender(
     };
     request->on_error = [](corelink::core::network::channel_id_type channel_id, const std::string &err)
     {
-        std::fprintf(stderr, "[diag] sender data channel %llu error: %s\n",
+        std::fprintf(stderr, "[ros2_bridge_node] sender data channel %llu error: %s\n",
                 static_cast<unsigned long long>(channel_id), err.c_str());
-    };
-    request->on_send = [](corelink::core::network::channel_id_type channel_id, size_t bytes_sent)
-    {
-        std::fprintf(stderr, "[diag] sender data channel %llu confirmed %zu bytes sent\n",
-                static_cast<unsigned long long>(channel_id), bytes_sent);
     };
 
     m_client.request(
@@ -139,20 +152,18 @@ void CorelinkTransport::createReceiver(
             {
                 if (response->status_code != 0)
                 {
-                    std::fprintf(stderr, "[diag] update callback status_code=%d\n", response->status_code);
+                    std::fprintf(stderr, "[ros2_bridge_node] server_callback_on_update failed: status_code=%d\n",
+                            response->status_code);
                     return;
                 }
                 auto update = std::static_pointer_cast<
                         corelink::client::request_response::responses::server_cb_on_update_response>(response);
-                std::fprintf(stderr,
-                        "[diag] server_callback_on_update: type='%s' (want '%s') receiver_id=%lld stream_id=%lld user='%s' meta='%s'\n",
-                        update->type.c_str(), stream_type.c_str(),
-                        static_cast<long long>(update->receiver_id), static_cast<long long>(update->stream_id),
-                        update->user.c_str(), update->meta.c_str());
                 if (update->type != stream_type)
                 {
                     return; // some other stream_type under the same workspace
                 }
+                std::fprintf(stderr, "[ros2_bridge_node] new sender for '%s' (user='%s'), subscribing...\n",
+                        stream_type.c_str(), update->user.c_str());
 
                 m_client.request(
                         channel_id,
@@ -164,9 +175,11 @@ void CorelinkTransport::createReceiver(
                            const std::string &,
                            std::shared_ptr<corelink::client::request_response::responses::corelink_server_response_base> sub_response)
                         {
-                            std::fprintf(stderr, "[diag] subscribe response status_code=%d\n", sub_response->status_code);
-                            // Data starts arriving on on_receive (or doesn't,
-                            // on failure) -- nothing to branch on here.
+                            if (sub_response->status_code != 0)
+                            {
+                                std::fprintf(stderr, "[ros2_bridge_node] subscribe failed: status_code=%d\n",
+                                        sub_response->status_code);
+                            }
                         });
             });
 
@@ -176,14 +189,14 @@ void CorelinkTransport::createReceiver(
     request->stream_type = stream_type;
     request->meta = "ros2_bridge_node receiver";
     request->alert = true;
-    request->echo = false;
+    request->echo = true;
     request->on_init = [on_ready](corelink::core::network::channel_id_type channel_id)
     {
         on_ready(channel_id);
     };
     request->on_error = [](corelink::core::network::channel_id_type channel_id, const std::string &err)
     {
-        std::fprintf(stderr, "[diag] receiver data channel %llu error: %s\n",
+        std::fprintf(stderr, "[ros2_bridge_node] receiver data channel %llu error: %s\n",
                 static_cast<unsigned long long>(channel_id), err.c_str());
     };
     request->on_receive = [on_data](

@@ -1,0 +1,4 @@
+# applies to any docker build using ./src as context (currently just
+# src/rtabmap_offload/Dockerfile) -- bridge_node/build is local/stale
+# host-arch cmake output, never something to ship into an image
+bridge_node/build

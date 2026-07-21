@@ -7,13 +7,7 @@ namespace ros2_bridge_node
 namespace
 {
 
-// Returns a reference to one of the static constexpr protocol objects
-// (protocols::tcp/udp/websocket), not a copy. corelink's request objects
-// (modify_sender_stream_request etc.) store a `const protocol &` rather
-// than a copy, so this needs to keep pointing at a program-lifetime
-// static, all the way through to wherever the async request completes.
-// Returning by value here would hand back a temporary whose lifetime
-// ends long before that -- see the same issue fixed in CorelinkTransport.
+
 const corelink::core::network::constants::protocols::protocol &protocolFromString(const std::string &name)
 {
     if (name == "tcp") return corelink::core::network::constants::protocols::tcp;
@@ -24,11 +18,7 @@ const corelink::core::network::constants::protocols::protocol &protocolFromStrin
     throw std::invalid_argument("Invalid protocol name: " + name);
 }
 
-// "qos" is just a history depth; the local pub/sub also has to match
-// whatever reliability policy the real ROS2 endpoint on the other side
-// uses, or DDS refuses to match them at all (e.g. sensor topics like
-// /battery_state are commonly BEST_EFFORT, while rclcpp::QoS()'s default
-// is RELIABLE).
+
 rclcpp::QoS qosFromParams(int64_t depth, const std::string &reliability)
 {
     rclcpp::QoS qos(depth);
@@ -38,7 +28,7 @@ rclcpp::QoS qosFromParams(int64_t depth, const std::string &reliability)
     }
     else if (reliability == "reliable")
     {
-        qos.reliable();
+        qos.reliable(); //history depth
     }
     else
     {

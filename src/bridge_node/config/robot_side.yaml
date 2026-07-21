@@ -2,23 +2,13 @@ ros2_bridge_node:
   ros__parameters:
     corelink.endpoint: "corelink.hpc.nyu.edu"
     corelink.port: 20012
-    # corelink.username / corelink.password intentionally not here -- see
-    # config/credentials.yaml.example, loaded as a separate (gitignored)
-    # params file at launch time so real creds never land in git.
-    # "robot1" was a placeholder that doesn't exist on the server. "Chalktalk"
-    # is confirmed to exist (pulled via ex_get_workspaces()) and is what the
-    # 2026-07-15 connect/auth/send testing used -- but it's NOT confirmed to
-    # be this project's actually-assigned workspace, and switching to it
-    # alone did not fix the receiver-never-fires issue. Still need to
-    # confirm the real assigned workspace name with the Corelink team.
+
     corelink.workspace: "Chalktalk"
     corelink.data_protocol: "udp"
 
     topic.name: "/chatter"
     topic.type: "std_msgs/msg/String"
-    # This side subscribes to the local /chatter topic and forwards it
-    # into Corelink. Pair with server_side.yaml (direction: from_corelink)
-    # running on the other machine.
+
     topic.direction: "to_corelink"
-    qos: 10 #ros2 quality of service: e.g History/Depth/Reliability/Durability
+    qos: 10 #ros2 quality of service, e.g History/Depth/Reliability/Durability
 

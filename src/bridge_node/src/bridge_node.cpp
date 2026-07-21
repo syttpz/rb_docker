@@ -59,7 +59,7 @@ BridgeNode::BridgeNode() : rclcpp::Node("ros2_bridge_node")
     m_direction = declare_parameter<std::string>("topic.direction", "to_corelink");
     m_workspace = declare_parameter<std::string>("corelink.workspace", "Chalktalk");
 
-    const auto endpoint = declare_parameter<std::string>("corelink.endpoint", "corelink.hsrn.nyu.edu");
+    const auto endpoint = declare_parameter<std::string>("corelink.endpoint", "corelink.hpc.nyu.edu");
     const auto port = static_cast<uint16_t>(declare_parameter<int>("corelink.port", 20012));
     const auto username = declare_parameter<std::string>("corelink.username", "Testuser");
     const auto password = declare_parameter<std::string>("corelink.password", "Testpassword");

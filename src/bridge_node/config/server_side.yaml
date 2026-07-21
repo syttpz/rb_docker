@@ -1,6 +1,6 @@
 ros2_bridge_node:
   ros__parameters:
-    corelink.endpoint: "corelink.hsrn.nyu.edu"
+    corelink.endpoint: "corelink.hpc.nyu.edu"
     corelink.port: 20012
     # corelink.username / corelink.password intentionally not here -- see
     # config/credentials.yaml.example, loaded as a separate (gitignored)

@@ -1,4 +1,4 @@
-# build on k8s  
+# build on k8s
 #   docker build -t robot:humble .
 
 FROM --platform=linux/amd64 ros:humble-ros-base
@@ -30,8 +30,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         # Rtabmap
         ros-humble-rtabmap-ros \
         # Nav2
-        ros2-humble-navigation2 \
-        ros2-humble-nav2-bringup \
+        ros-humble-navigation2 \
+        ros-humble-nav2-bringup \
     && rm -rf /var/lib/apt/lists/*
 
 # corelink build dependencies
@@ -41,7 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libwebsockets-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# workspacebridge_nodebridge_node
+# workspace
 ENV ROS_WS=/ros_ws
 RUN mkdir -p ${ROS_WS}/src
 WORKDIR ${ROS_WS}
@@ -51,15 +51,27 @@ RUN echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc && \
     echo "[ -f ${ROS_WS}/install/setup.bash ] && source ${ROS_WS}/install/setup.bash" >> /root/.bashrc
 
 # clone bridge_node
-RUN git clone git@github.com:syttpz/rb_docker.git
+WORKDIR ${ROS_WS}/src
+RUN git clone https://github.com/syttpz/rb_docker.git
 
 WORKDIR ${ROS_WS}/src/rb_docker/src/bridge_node
 
 # build
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        ros-humble-colcon-common-extensions \
-    && rm -rf /var/lib/apt/lists/*
-RUN colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+# RUN source /opt/ros/humble/setup.bash && \
+#     cd ${ROS_WS}/src/bridge_node && \
+#     mkdir -p build && cd build && \
+#     cmake .. -DCMAKE_BUILD_TYPE=Release && \
+#     cmake --build . -j$(nproc)
 
 
-CMD ["/bin/bash"]
+# colcon build
+RUN source /opt/ros/humble/setup.bash && \
+    cd ${ROS_WS} && \
+    colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+
+# run receiver
+# RUN source /opt/ros/humble/setup.bash && \
+#    cd ${ROS_WS}/src/rb_docker/src/bridge_node/build && \
+#    ./ros2_bridge_node --ros-args   --params-file ../config/server_side.yaml   --params-file ../config/credentials.yaml   -p topic.name:=/battery_state   -p topic.type:=sensor_msgs/msg/BatteryState   -p qos.reliability:=best_effort   -p corelink.data_protocol:=tcp
+CMD ["bash"]

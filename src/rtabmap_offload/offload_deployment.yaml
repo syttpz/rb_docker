@@ -1,0 +1,37 @@
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: rtabmap-offload
+  namespace: hsrn-robot
+  labels:
+    app: rtabmap-offload
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: rtabmap-offload
+
+  template:
+    metadata:
+      labels:
+        app: rtabmap-offload
+
+    spec:
+      containers:
+        - name: rtabmap-offload
+          image: eddyhu217/offload:latest
+          imagePullPolicy: Always
+
+          env:
+            - name: ROS_DOMAIN_ID
+              value: "0"
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+```

@@ -10,7 +10,7 @@
 #        robot:humble
 
 # ros:humble arm64
-FROM ros:humble-ros-base
+FROM --platform=linux/arm64 ros:humble-ros-base
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=en_US.utf8

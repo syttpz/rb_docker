@@ -1,0 +1,42 @@
+{
+  "count": 451,
+  "duration_s": 30.0315101146698,
+  "rate_hz": 15.01755983225417,
+  "bytes_total": 7932653,
+  "bandwidth_Bps": 264144.3260665422,
+  "message_size_bytes": {
+    "mean": 17589.031042128605,
+    "median": 17586.0,
+    "p95": 17882.0,
+    "min": 17126.0,
+    "max": 18074.0,
+    "stddev": 181.14235661520834,
+    "samples": 451,
+    "unit": "bytes"
+  },
+  "latency_ms": {
+    "mean": 65.99400154502852,
+    "median": 65.96827507019043,
+    "p95": 66.14506244659424,
+    "min": 65.87958335876465,
+    "max": 66.31207466125488,
+    "stddev": 0.07692046034636553,
+    "samples": 451,
+    "unit": "ms"
+  },
+  "inter_arrival_jitter_ms": {
+    "mean": 66.71454058753119,
+    "median": 66.71106815338135,
+    "p95": 66.85290336608887,
+    "min": 66.37096405029297,
+    "max": 67.08455085754395,
+    "stddev": 0.08451963934220909,
+    "samples": 450,
+    "unit": "ms"
+  },
+  "topic": "/camera/camera/color/image_raw/compressed",
+  "type": "sensor_msgs/msg/CompressedImage",
+  "qos": "reliable",
+  "label": "source-424x240-udp",
+  "observed_at_unix": 1784618737.6387815
+}

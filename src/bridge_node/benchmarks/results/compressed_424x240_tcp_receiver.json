@@ -1,0 +1,42 @@
+{
+  "count": 3,
+  "duration_s": 60.068583965301514,
+  "rate_hz": 0.04994291195099494,
+  "bytes_total": 52295,
+  "bandwidth_Bps": 870.5881934924269,
+  "message_size_bytes": {
+    "mean": 17431.666666666668,
+    "median": 17520.0,
+    "p95": 17534.4,
+    "min": 17239.0,
+    "max": 17536.0,
+    "stddev": 136.39240773917325,
+    "samples": 3,
+    "unit": "bytes"
+  },
+  "latency_ms": {
+    "mean": 95.80612182617188,
+    "median": 93.89901161193848,
+    "p95": 103.02388668060303,
+    "min": 89.48159217834473,
+    "max": 104.03776168823242,
+    "stddev": 6.093620693100344,
+    "samples": 3,
+    "unit": "ms"
+  },
+  "inter_arrival_jitter_ms": {
+    "mean": 7498.155474662781,
+    "median": 7498.155474662781,
+    "p95": 10227.559459209442,
+    "min": 4465.484380722046,
+    "max": 10530.826568603516,
+    "stddev": 3032.671093940735,
+    "samples": 2,
+    "unit": "ms"
+  },
+  "topic": "/camera/camera/color/image_raw/compressed",
+  "type": "sensor_msgs/msg/CompressedImage",
+  "qos": "reliable",
+  "label": "receiver-tcp-hop-stall-observed",
+  "observed_at_unix": 1784618988.2526882
+}

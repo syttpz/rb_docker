@@ -13,20 +13,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 
-# --- Corelink C++ client -----------------------------------------------
-# Folded in via add_subdirectory rather than a separate install step, on
-# the "simplest thing that gets a prototype building" tradeoff noted in
-# the plan (revisit with a proper find_package/install if this grows).
-#
-# Vendored locally in corelink_cpp/ (patched copy of corelink-client-dev's
-# cpp/, see CORELINK_PATCHES.md) so this repo builds standalone without
-# needing corelink-client-dev checked out alongside it.
-#
-# The dependency paths below default to plain /usr/include and the
-# standard system lib dir, matching what `sudo apt install libasio-dev
-# rapidjson-dev libwebsockets-dev libssl-dev` installs on Ubuntu/Debian.
-# Override any of these with -D on the cmake command line if your
-# dependencies live somewhere else.
+# pactched local corelink_cpp client
 set(CORELINK_CPP_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/corelink_cpp" CACHE PATH
     "Path to the vendored corelink C++ client directory")
 
@@ -40,7 +27,7 @@ set(CORELINK_OPENSSL_BIN_PATH "/usr/lib/x86_64-linux-gnu" CACHE PATH "")
 
 add_subdirectory(${CORELINK_CPP_SRC_DIR} corelink_cpp_build)
 
-# --- ros2_bridge_node ----------------------------------------------------
+# ros2 bridge node
 add_executable(ros2_bridge_node
   src/main.cpp
   src/bridge_node.cpp

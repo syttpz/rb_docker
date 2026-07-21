@@ -24,7 +24,30 @@ const corelink::core::network::constants::protocols::protocol &protocolFromStrin
     throw std::invalid_argument("Invalid protocol name: " + name);
 }
 
-}  
+// "qos" is just a history depth; the local pub/sub also has to match
+// whatever reliability policy the real ROS2 endpoint on the other side
+// uses, or DDS refuses to match them at all (e.g. sensor topics like
+// /battery_state are commonly BEST_EFFORT, while rclcpp::QoS()'s default
+// is RELIABLE).
+rclcpp::QoS qosFromParams(int64_t depth, const std::string &reliability)
+{
+    rclcpp::QoS qos(depth);
+    if (reliability == "best_effort")
+    {
+        qos.best_effort();
+    }
+    else if (reliability == "reliable")
+    {
+        qos.reliable();
+    }
+    else
+    {
+        throw std::invalid_argument("Invalid qos.reliability: " + reliability + " (expected 'reliable' or 'best_effort')");
+    }
+    return qos;
+}
+
+}
 
 
 // create ros2_bridge_node  
@@ -43,6 +66,7 @@ BridgeNode::BridgeNode() : rclcpp::Node("ros2_bridge_node")
     const auto cert_path = declare_parameter<std::string>("corelink.certificate_path", "");
     const auto data_protocol_name = declare_parameter<std::string>("corelink.data_protocol", "udp");
     declare_parameter<int>("qos", 10);
+    declare_parameter<std::string>("qos.reliability", "reliable");
 
     if (m_workspace.empty())
     {
@@ -90,7 +114,7 @@ BridgeNode::BridgeNode() : rclcpp::Node("ros2_bridge_node")
 void BridgeNode::setupToCorelink()
 {
     const auto data_protocol_name = get_parameter("corelink.data_protocol").as_string();
-    const auto qos = get_parameter("qos").as_int();
+    const auto qos = qosFromParams(get_parameter("qos").as_int(), get_parameter("qos.reliability").as_string());
     const auto &data_protocol = protocolFromString(data_protocol_name);
 
     m_transport->createSender(
@@ -106,7 +130,7 @@ void BridgeNode::setupToCorelink()
                 m_local_subscription = create_generic_subscription( // knows the topic type at run time
                         m_topic_name,
                         m_topic_type,
-                        rclcpp::QoS(qos), // Best effor? 
+                        qos,
                         [this](std::shared_ptr<rclcpp::SerializedMessage> message)
                         {
                             onLocalMessage(message);
@@ -118,8 +142,9 @@ void BridgeNode::setupFromCorelink()
 {
     const auto data_protocol_name = get_parameter("corelink.data_protocol").as_string();
     const auto &data_protocol = protocolFromString(data_protocol_name);
+    const auto qos = qosFromParams(get_parameter("qos").as_int(), get_parameter("qos.reliability").as_string());
 
-    m_local_publisher = create_generic_publisher(m_topic_name, m_topic_type, rclcpp::QoS(10));
+    m_local_publisher = create_generic_publisher(m_topic_name, m_topic_type, qos);
 
     m_transport->createReceiver(
             m_workspace,

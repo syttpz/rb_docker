@@ -1,5 +1,7 @@
 #include "ros2_bridge_node/corelink_transport.hpp"
 
+#include <cstdio>
+
 namespace ros2_bridge_node
 {
 
@@ -106,6 +108,58 @@ void CorelinkTransport::createReceiver(
         ReceiveCallback on_data,
         StreamReadyCallback on_ready)
 {
+    // create_receiver alone does NOT make data start flowing: matching
+    // workspace/stream_type on a create_receiver call only puts this
+    // client on the server's radar for that type. The server separately
+    // pushes a "server_callback_on_update" event on the control channel
+    // whenever a sender with a matching stream_type shows up, and the
+    // client has to explicitly subscribe() to that sender's stream_id
+    // before the server starts forwarding its data to us. Without this,
+    // create_receiver's on_init still fires (the local data channel socket
+    // is real) but on_receive never does. Confirmed against the reference
+    // client flow in data_center_robot's CorelinkInterface::addOnUpdateHandler.
+    m_client.request(
+            m_control_channel_id,
+            corelink::client::corelink_functions::server_callback_on_update,
+            nullptr,
+            [this, stream_type](
+                    corelink::core::network::channel_id_type channel_id,
+                    const std::string &,
+                    std::shared_ptr<corelink::client::request_response::responses::corelink_server_response_base> response)
+            {
+                if (response->status_code != 0)
+                {
+                    std::fprintf(stderr, "[diag] update callback status_code=%d\n", response->status_code);
+                    return;
+                }
+                auto update = std::static_pointer_cast<
+                        corelink::client::request_response::responses::server_cb_on_update_response>(response);
+                std::fprintf(stderr,
+                        "[diag] server_callback_on_update: type='%s' (want '%s') receiver_id=%lld stream_id=%lld user='%s' meta='%s'\n",
+                        update->type.c_str(), stream_type.c_str(),
+                        static_cast<long long>(update->receiver_id), static_cast<long long>(update->stream_id),
+                        update->user.c_str(), update->meta.c_str());
+                if (update->type != stream_type)
+                {
+                    return; // some other stream_type under the same workspace
+                }
+
+                m_client.request(
+                        channel_id,
+                        corelink::client::corelink_functions::subscribe,
+                        std::make_shared<corelink::client::request_response::requests::modify_stream_subscription_request>(
+                                update->receiver_id,
+                                std::vector<corelink::client::constants::corelink_stream_id_type>{update->stream_id}),
+                        [](corelink::core::network::channel_id_type,
+                           const std::string &,
+                           std::shared_ptr<corelink::client::request_response::responses::corelink_server_response_base> sub_response)
+                        {
+                            std::fprintf(stderr, "[diag] subscribe response status_code=%d\n", sub_response->status_code);
+                            // Data starts arriving on on_receive (or doesn't,
+                            // on failure) -- nothing to branch on here.
+                        });
+            });
+
     auto request = std::make_shared<
             corelink::client::request_response::requests::modify_receiver_stream_request>(data_protocol);
     request->workspace = workspace;

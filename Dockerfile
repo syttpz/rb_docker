@@ -41,7 +41,7 @@ RUN mkdir -p /etc/apt/keyrings && \
     echo "deb [signed-by=/etc/apt/keyrings/librealsenseai.gpg] https://librealsense.realsenseai.com/Debian/apt-repo $(. /etc/os-release && echo $VERSION_CODENAME) main" \
         > /etc/apt/sources.list.d/librealsense.list
 
-# librealsense2-dkms (kernel module patch) is only published for amd64;
+# librealsense2-dkms (kernel module patch) only for amd64;
 # arm64 relies on librealsense2-udev-rules instead for device permissions.
 RUN apt-get update && \
     if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
@@ -90,11 +90,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 
 # corelink build dependencies
-# ros2_bridge_node (in src/, built via colcon) vendors its own already-patched
-# corelink_cpp/ snapshot and compiles it itself (add_subdirectory) -- no
-# separate corelink-client checkout/build needed here anymore. This just
-# installs the third-party libs corelink_cpp compiles against, matching what
-# corelink_cpp's CMakeLists.txt expects at the default apt paths.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libasio-dev \
         rapidjson-dev \

@@ -154,9 +154,7 @@ void BridgeNode::setupFromCorelink()
 
 void BridgeNode::onLocalMessage(std::shared_ptr<rclcpp::SerializedMessage> message)
 {
-    // Raw CDR passthrough: no per-message-type (de)serialization here at
-    // all, see plan's "Serialization: raw CDR passthrough" section. Both
-    // ends must agree on topic.type out of band (the launch/params config).
+    // Raw CDR
     const auto &raw = message->get_rcl_serialized_message();
     std::vector<uint8_t> data(raw.buffer, raw.buffer + raw.buffer_length);
     RCLCPP_INFO(get_logger(), "Local message on '%s' (%zu bytes), sending to Corelink.",

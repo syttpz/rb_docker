@@ -40,17 +40,7 @@ void CorelinkTransport::connect(ReadyCallback on_ready)
             },
             [this, on_ready](corelink::core::network::channel_id_type channel_id)
             {
-                // The server pushes server_callback_on_subscribed/on_stale/
-                // on_dropped notifications on this control channel whenever
-                // *anyone* subscribes/goes stale/drops (e.g. a receiver
-                // elsewhere subscribing to one of our sender streams). If
-                // nothing is registered for a given push type, the client
-                // library routes it through the generic control-channel
-                // on_error path above, which -- since it reuses on_ready --
-                // looks exactly like a fatal connect failure even though the
-                // node is working fine. Register no-op handlers for the ones
-                // we don't otherwise care about so they don't masquerade as
-                // connection errors.
+       
                 auto noop = [](corelink::core::network::channel_id_type, const std::string &,
                         std::shared_ptr<corelink::client::request_response::responses::corelink_server_response_base>)
                 {};
@@ -99,7 +89,7 @@ void CorelinkTransport::createSender(
     request->stream_type = stream_type;
     request->meta = "ros2_bridge_node sender";
     request->alert = true;
-    request->echo = false;
+    request->echo = true;
     request->on_init = [on_ready](corelink::core::network::channel_id_type channel_id)
     {
         on_ready(channel_id);
@@ -131,16 +121,6 @@ void CorelinkTransport::createReceiver(
         ReceiveCallback on_data,
         StreamReadyCallback on_ready)
 {
-    // create_receiver alone does NOT make data start flowing: matching
-    // workspace/stream_type on a create_receiver call only puts this
-    // client on the server's radar for that type. The server separately
-    // pushes a "server_callback_on_update" event on the control channel
-    // whenever a sender with a matching stream_type shows up, and the
-    // client has to explicitly subscribe() to that sender's stream_id
-    // before the server starts forwarding its data to us. Without this,
-    // create_receiver's on_init still fires (the local data channel socket
-    // is real) but on_receive never does. Confirmed against the reference
-    // client flow in data_center_robot's CorelinkInterface::addOnUpdateHandler.
     m_client.request(
             m_control_channel_id,
             corelink::client::corelink_functions::server_callback_on_update,

@@ -27,3 +27,8 @@ compile_commands.json
 # real Corelink credentials -- config/credentials.yaml.example is the
 # tracked template, this is the local file with actual values
 config/credentials.yaml
+
+# local progress / notes docs -- not meant to be shared in the repo
+BUILD.md
+CORELINK_PATCHES.md
+HANDOFF.md

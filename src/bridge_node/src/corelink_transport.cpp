@@ -86,6 +86,16 @@ void CorelinkTransport::createSender(
     {
         on_ready(channel_id);
     };
+    request->on_error = [](corelink::core::network::channel_id_type channel_id, const std::string &err)
+    {
+        std::fprintf(stderr, "[diag] sender data channel %llu error: %s\n",
+                static_cast<unsigned long long>(channel_id), err.c_str());
+    };
+    request->on_send = [](corelink::core::network::channel_id_type channel_id, size_t bytes_sent)
+    {
+        std::fprintf(stderr, "[diag] sender data channel %llu confirmed %zu bytes sent\n",
+                static_cast<unsigned long long>(channel_id), bytes_sent);
+    };
 
     m_client.request(
             m_control_channel_id,
@@ -170,6 +180,11 @@ void CorelinkTransport::createReceiver(
     request->on_init = [on_ready](corelink::core::network::channel_id_type channel_id)
     {
         on_ready(channel_id);
+    };
+    request->on_error = [](corelink::core::network::channel_id_type channel_id, const std::string &err)
+    {
+        std::fprintf(stderr, "[diag] receiver data channel %llu error: %s\n",
+                static_cast<unsigned long long>(channel_id), err.c_str());
     };
     request->on_receive = [on_data](
             corelink::core::network::channel_id_type,

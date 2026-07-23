@@ -1,43 +1,66 @@
 /**
- * @author: syttpz
- * @file: fragment.hpp
- * @brief: reliable udp fragment header, ACK, reliable udp receiver class, and dynamic buffer based on message size
+ * @brief: enables image/large size data (> MTU) to be transmissioned through fragmentation
+ *
+ *  sender:   onLocalMessage(entire frame) -> [slicer] -> sendData N times (channel, bytes)
+ *  receiver: onCorelinkMessage(fragment)  -> [reassembler] -> publish once a frame is whole
+ *
+ *  No sockets here: everything operates on plain byte buffers. All corelink I/O
+ *  stays in CorelinkTransport.
 */
 #pragma once
 
-#include <csocket>
+#include <cstddef>
 #include <cstdint>
-#include <chrono>
-#include <functional>
-#include <memory>
+#include <map>
+#include <optional>
+#include <tuple>
+#include <vector>
+#include <stdexcept>
 
-#include "corelink_all.hpp"
 
-/**
-Further compacted
-32 bit - 4 byte header
-10 bit - sequence_number
-
-*/
-struct reliable_udp_header {
-    uint32_t sequence_number;
-    uint32_t image_number;
-    uint8_t is_last_fragment;
+namespace bridge_node
+{
+struct FragmentHeader {
+    uint32_t image_number;      
+    uint32_t sequence_number;   
+    uint8_t is_last_fragment;   
 };
 
-auto pack_packet(uint32_t sequence_number, uint32_t image_number, bool is_last_fragment, const std::vector<uint8_t>& payload) -> std::vector<uint8_t>;
+// 9 byte header size
+constexpr std::size_t kFragmentHeaderSize = 9;
 
-auto unpack_packet(const std::vector<uint8_t>& packet) -> std::tuple<uint32_t, uint32_t, bool, std::vector<uint8_t>>;
+// max payload byte
+constexpr std::size_t kMaxFragmentPayload = 16000;
 
-class ReliableUDPReceiver {
+
+auto pack_packet(uint32_t image_number, uint32_t sequence_number, bool is_last_fragment,
+                 const std::vector<uint8_t>& payload) -> std::vector<uint8_t>;
+
+auto unpack_packet(const std::vector<uint8_t>& packet)
+        -> std::tuple<uint32_t, uint32_t, bool, std::vector<uint8_t>>;
+
+
+class Reassembler {
 public:
-    ReliableUDPReceiver(uint16_t port);
-    ~ReliableUDPReceiver();
+    // Feeds one received fragment
+    std::optional<std::vector<uint8_t>> feed(const std::vector<uint8_t>& packet);
 
-    bool send_reliable_udp_packet(const std::vector<uint8_t>& payload, uint32_t sequence_number, uint32_t image_number, bool is_last_fragment);
-    bool receive_reliable_udp_packet(std::vector<uint8_t>& payload, uint32_t& sequence_number, uint32_t& image_number, bool& is_last_fragment);
 private:
-    std::unique_ptr<corelink::Socket> socket_;
-    uint16_t port_;
+    // Fragments collected so far for one in-progress frame.
+    struct PartialFrame {
+        std::map<uint32_t, std::vector<uint8_t>> chunks;  // keyed by sequence_number
+        bool seen_last{false};
+        uint32_t last_seq{0};                             // valid once seen_last
+    };
+
+    // Drop in-progress frames too old to ever complete; 
+    void evict_stale(uint32_t newest_image_number);
+
+    std::map<uint32_t, PartialFrame> m_in_progress;
+    uint32_t m_newest_image_number{0};
+
+    // How many frames behind the newest to keep before giving up on them.
+    static constexpr uint32_t kReassemblyWindow = 4;
 };
 
+} 

@@ -1,4 +1,6 @@
 #include "ros2_bridge_node/bridge_node.hpp"
+#include "fragment.hpp"
+
 #include <cstring> // memcpy
 
 namespace ros2_bridge_node

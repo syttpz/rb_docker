@@ -1,4 +1,19 @@
-```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rtabmap-offload-data
+  namespace: hsrn-robot
+  labels:
+    app: rtabmap-offload
+
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 60Gi
+
+---
 apiVersion: apps/v1
 kind: Deployment
 
@@ -34,4 +49,12 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
-```
+
+          volumeMounts:
+            - name: rtabmap-data
+              mountPath: /root/.ros
+
+      volumes:
+        - name: rtabmap-data
+          persistentVolumeClaim:
+            claimName: rtabmap-offload-data

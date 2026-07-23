@@ -1,7 +1,7 @@
 #include "ros2_bridge_node/fragment.hpp"
 
 #include <cstring> 
-
+#include "ros2_bridge_node/bridge_node.hpp"
 
 namespace bridge_node
 {
@@ -41,19 +41,15 @@ auto unpack_packet(const std::vector<uint8_t> &packet) -> std::tuple<uint32_t, u
 }
 
 std::optional<std::vector<uint8_t>>
-FragmentReassembler::feed(const std::vector<uint8_t> &packet)
+Reassembler::feed(const std::vector<uint8_t> &packet)
 {
-    //   1. unpack_packet(packet)
-    //   2. store payload in m_in_progress[image].chunks[seq]; set seen_last / last_seq
-    //   3. evict_stale(image)
-    //   4. if seen_last && chunks.size() == last_seq + 1: concatenate chunks in
-    //      sequence order, erase the entry, return the reassembled message
-    //   5. otherwise return std::nullopt
+
     (void)packet;
     return std::nullopt;
 }
 
-void FragmentReassembler::evict_stale(uint32_t newest_image_number)
+
+void Reassembler::evict_stale(uint32_t newest_image_number)
 {
     // update m_newest_image_number; erase any in-progress frame whose
     // image_number < newest - kReassemblyWindow (mind unsigned underflow).

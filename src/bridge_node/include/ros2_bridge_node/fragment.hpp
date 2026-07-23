@@ -4,8 +4,6 @@
  *  sender:   onLocalMessage(entire frame) -> [slicer] -> sendData N times (channel, bytes)
  *  receiver: onCorelinkMessage(fragment)  -> [reassembler] -> publish once a frame is whole
  *
- *  No sockets here: everything operates on plain byte buffers. All corelink I/O
- *  stays in CorelinkTransport.
 */
 #pragma once
 
@@ -32,6 +30,9 @@ constexpr std::size_t kFragmentHeaderSize = 9;
 // max payload byte
 constexpr std::size_t kMaxFragmentPayload = 16000;
 
+// MTU
+constexpr std::size_t MTU = 20000; //20 KB get the MTU dynamically?
+
 
 auto pack_packet(uint32_t image_number, uint32_t sequence_number, bool is_last_fragment,
                  const std::vector<uint8_t>& payload) -> std::vector<uint8_t>;
@@ -40,6 +41,21 @@ auto unpack_packet(const std::vector<uint8_t>& packet)
         -> std::tuple<uint32_t, uint32_t, bool, std::vector<uint8_t>>;
 
 
+
+
+// slicer class
+class Slicer{
+public:
+    
+private:
+    void slice(auto& rcl_msg); //serialized data
+
+    uint32_t cur_image_num{0}; //++ on slice
+    uint32_t cur_sequence_num{0}; //reset on serialization
+    
+};
+
+// reassemble
 class Reassembler {
 public:
     // Feeds one received fragment

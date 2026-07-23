@@ -155,13 +155,26 @@ void BridgeNode::setupFromCorelink()
 }
 
 void BridgeNode::onLocalMessage(std::shared_ptr<rclcpp::SerializedMessage> message)
-{
+{   
     // Raw CDR
     const auto &raw = message->get_rcl_serialized_message();
-    std::vector<uint8_t> data(raw.buffer, raw.buffer + raw.buffer_length);
-    RCLCPP_INFO(get_logger(), "Local message on '%s' (%zu bytes), sending to Corelink.",
-                m_topic_name.c_str(), data.size());
-    m_transport->sendData(m_data_channel_id, std::move(data));
+
+    // Slicer
+    if(raw.size() > bridge_node::kMaxFragmentPayload){
+        // Slicer initialization
+
+        std::size_t sequence_num = ceil(raw.size()/bridge_node::kMaxFragmentPayload);
+        for(std::size_t q = 0; q < sequence_num; q++){
+            // Pack
+            bridge_node::pack_packet()
+        }
+    }else{
+        //send once
+        std::vector<uint8_t> data(raw.buffer, raw.buffer + raw.buffer_length);
+        RCLCPP_INFO(get_logger(), "Local message on '%s' (%zu bytes), sending to Corelink.",
+                    m_topic_name.c_str(), data.size());
+        m_transport->sendData(m_data_channel_id, std::move(data));
+    }
 }
 
 void BridgeNode::onCorelinkMessage(const corelink::utils::json & /*headers*/, const std::vector<uint8_t> &data)

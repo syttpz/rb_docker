@@ -162,11 +162,22 @@ void BridgeNode::onLocalMessage(std::shared_ptr<rclcpp::SerializedMessage> messa
     // Slicer
     if(raw.size() > bridge_node::kMaxFragmentPayload){
         // Slicer initialization
+        uint32_t cur_image_num{0}; //++ on slice, note:: this needs to be global param
+        //on LocalMessage callback, cur_image_num ++ 
+        uint32_t cur_sequence_num{0}; //reset on serialization
+        bool is_last_fragment = false;
 
         std::size_t sequence_num = ceil(raw.size()/bridge_node::kMaxFragmentPayload);
+
+
         for(std::size_t q = 0; q < sequence_num; q++){
             // Pack
-            bridge_node::pack_packet()
+            if(q == sequence_num) is_last_fragment = true;
+            std::vector<uint8_t> data(raw.buffer + q * bridge_node::kMaxFragmentPayload, bridge_node::kMaxFragmentPayload);
+            data = bridge_node::pack_packet(cur_image_num, cur_sequence_num, is_last_fragment, data);
+            RCLCPP_INFO(get_logger(), "Image '%s', Packet '%s' sent to", cur_image_num, cur_sequence_num);
+            cur_sequence_num ++;
+            m_transport->sendData(m_data_channel_id, std::move(data));
         }
     }else{
         //send once

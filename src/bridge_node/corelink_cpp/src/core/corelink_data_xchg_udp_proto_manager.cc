@@ -7,6 +7,32 @@ namespace corelink
     {
         namespace network
         {
+            namespace
+            {
+                // Kernel send queue for a data channel socket. Without this the
+                // socket gets net.core.wmem_default (208 KB on stock Ubuntu /
+                // Raspberry Pi OS), which is smaller than a single burst of
+                // application fragments: a 921 KB frame sliced at 16 KB is 58
+                // datagrams enqueued back to back in microseconds, ~907 KiB,
+                // and everything past the 13th is silently dropped
+                // (netstat -su "send buffer errors"). Measured on a Pi 5 over
+                // WiFi: 2,277 of 15,022 fragments dropped this way, costing 42
+                // of 259 frames. Sized to hold one such burst twice over; going
+                // much larger only deepens the queue and adds latency, which for
+                // a live sensor stream is worse than dropping.
+                constexpr int k_udp_send_buffer_bytes = 2 * 1024 * 1024;
+
+                void apply_socket_buffer_options(const std::shared_ptr<asio::ip::udp::socket> &socket)
+                {
+                    if (socket == nullptr || !socket->is_open())
+                        return;
+                    // Best effort: a kernel that clamps this (net.core.wmem_max)
+                    // or refuses it must not take the data channel down with it.
+                    asio::error_code ignored;
+                    socket->set_option(asio::socket_base::send_buffer_size(k_udp_send_buffer_bytes), ignored);
+                }
+            }
+
             corelink_data_xchg_udp_protocol_manager::corelink_data_xchg_udp_protocol_manager(
                     const std::shared_ptr<corelink_data_xchg_raw_socket_protocol_context_manager> &context_manager)
                     : corelink_data_xchg_ip_proto_base(),
@@ -115,7 +141,10 @@ namespace corelink
                 if (channel_impl != nullptr)
                 {
                     if (!channel_impl->socket->is_open())
+                    {
                         channel_impl->socket->open(channel_impl->remote_endpoint.protocol());
+                        apply_socket_buffer_options(channel_impl->socket);
+                    }
 
                     auto self = std::dynamic_pointer_cast<corelink_data_xchg_udp_protocol_manager>(
                             shared_from_this());
@@ -191,7 +220,10 @@ namespace corelink
                 if (channel_impl != nullptr)
                 {
                     if (!channel_impl->socket->is_open())
+                    {
                         channel_impl->socket->open(channel_impl->remote_endpoint.protocol());
+                        apply_socket_buffer_options(channel_impl->socket);
+                    }
 
                     if (channel_impl->socket->is_open())
                     {

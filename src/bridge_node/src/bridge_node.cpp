@@ -61,6 +61,16 @@ BridgeNode::BridgeNode() : rclcpp::Node("ros2_bridge_node")
     m_max_rate_hz = declare_parameter<double>("topic.max_rate", 0.0);
     m_diag_packet_sizes = declare_parameter<bool>("diag.packet_sizes", false);
 
+    // Pacing. A 921 KB frame is 58 fragments enqueued in microseconds, which is
+    // ~4x a stock 208 KB kernel send buffer: the tail of the burst is dropped
+    // before it ever reaches the NIC. Spacing the fragments out keeps the queue
+    // shallow, and since UDP has no congestion control it is also the only way
+    // this bridge can avoid steamrolling a shared link.
+    // Rule of thumb: pacing_us ~ (frame period / fragment count) / 2, e.g. 5 Hz
+    // and 58 fragments -> 200000/58/2 ~ 1700.
+    m_pacing_us = declare_parameter<int64_t>("send.pacing_us", 0);
+    m_pacer_queue_max = static_cast<std::size_t>(declare_parameter<int>("send.pacing_queue_max", 128));
+
     if (m_workspace.empty())
     {
         RCLCPP_FATAL(get_logger(), "E: workspace is required");
@@ -119,6 +129,15 @@ void BridgeNode::setupToCorelink()
                 m_data_channel_id = channel_id;
                 RCLCPP_INFO(get_logger(), "Corelink sender stream ready (channel %llu). Subscribing to '%s' locally.",
                             static_cast<unsigned long long>(channel_id), m_topic_name.c_str());
+
+                // Started here, not in the constructor: the pacer sends on
+                // m_data_channel_id, which only becomes valid now.
+                if (m_pacing_us > 0 && !m_pacer_thread.joinable())
+                {
+                    RCLCPP_INFO(get_logger(), "Pacing fragments %ld us apart (queue cap %zu fragments).",
+                                static_cast<long>(m_pacing_us), m_pacer_queue_max);
+                    m_pacer_thread = std::thread(&BridgeNode::pacerLoop, this);
+                }
 
                 m_local_subscription = create_generic_subscription( // knows the topic type at run time
                         m_topic_name,
@@ -179,9 +198,75 @@ void BridgeNode::onLocalMessage(std::shared_ptr<rclcpp::SerializedMessage> messa
     RCLCPP_INFO(get_logger(), "Local message on '%s' (%zu bytes) -> %zu fragment(s), sending to Corelink.",
                 m_topic_name.c_str(), static_cast<std::size_t>(raw.buffer_length), packets.size());
 
+    dispatchFragments(std::move(packets));
+}
+
+void BridgeNode::dispatchFragments(std::vector<std::vector<uint8_t>> &&packets)
+{
+    if (m_pacing_us <= 0)
+    {
+        for (auto &packet : packets)
+        {
+            m_transport->sendData(m_data_channel_id, std::move(packet));
+        }
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(m_pacer_mutex);
+
+    // Drop the new frame rather than the one already going out: fragments are
+    // all-or-nothing, so a partially sent frame is wasted bandwidth, while a
+    // frame never enqueued costs nothing. Backing up here means the link cannot
+    // keep up with the source rate -- lower topic.max_rate or compress.
+    if (m_pacer_queue.size() + packets.size() > m_pacer_queue_max)
+    {
+        ++m_pacer_dropped_frames;
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                             "Pacer queue full (%zu fragments); dropped %zu frame(s) so far.",
+                             m_pacer_queue.size(), m_pacer_dropped_frames);
+        return;
+    }
+
     for (auto &packet : packets)
     {
+        m_pacer_queue.push_back(std::move(packet));
+    }
+    m_pacer_cv.notify_one();
+}
+
+void BridgeNode::pacerLoop()
+{
+    const auto gap = std::chrono::microseconds(m_pacing_us);
+    for (;;)
+    {
+        std::vector<uint8_t> packet;
+        {
+            std::unique_lock<std::mutex> lock(m_pacer_mutex);
+            m_pacer_cv.wait(lock, [this] { return m_pacer_stop || !m_pacer_queue.empty(); });
+            if (m_pacer_stop && m_pacer_queue.empty())
+            {
+                return;
+            }
+            packet = std::move(m_pacer_queue.front());
+            m_pacer_queue.pop_front();
+        }
+
         m_transport->sendData(m_data_channel_id, std::move(packet));
+        std::this_thread::sleep_for(gap);
+    }
+}
+
+BridgeNode::~BridgeNode()
+{
+    if (m_pacer_thread.joinable())
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_pacer_mutex);
+            m_pacer_stop = true;
+            m_pacer_queue.clear();   // shutting down; in-flight frames are lost anyway
+        }
+        m_pacer_cv.notify_all();
+        m_pacer_thread.join();
     }
 }
 

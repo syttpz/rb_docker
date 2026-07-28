@@ -1,9 +1,14 @@
 #pragma once
 
 #include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/generic_publisher.hpp>
@@ -32,6 +37,7 @@ class BridgeNode : public rclcpp::Node
 {
 public:
     BridgeNode();
+    ~BridgeNode() override;
 
 private:
     void setupToCorelink();
@@ -39,6 +45,11 @@ private:
 
     void onLocalMessage(std::shared_ptr<rclcpp::SerializedMessage> message);
     void onCorelinkMessage(const corelink::utils::json &headers, const std::vector<uint8_t> &data);
+
+    // Hands one frame's fragments to the transport. Either inline (no pacing)
+    // or via the pacer thread, depending on send.pacing_us.
+    void dispatchFragments(std::vector<std::vector<uint8_t>> &&packets);
+    void pacerLoop();
 
     std::string m_topic_name;
     std::string m_topic_type;
@@ -59,6 +70,20 @@ private:
     // the command line.
     double m_max_rate_hz{0.0};
     std::chrono::steady_clock::time_point m_last_forwarded_at{};
+
+    // Pacing: spacing between consecutive fragments of the same frame, in
+    // microseconds. 0 sends the whole frame in one tight loop (original
+    // behaviour). Non-zero moves sending onto m_pacer_thread so the ROS
+    // executor is never blocked by the spacing sleeps.
+    int64_t m_pacing_us{0};
+    std::size_t m_pacer_queue_max{0};
+
+    std::thread m_pacer_thread;
+    std::mutex m_pacer_mutex;
+    std::condition_variable m_pacer_cv;
+    std::deque<std::vector<uint8_t>> m_pacer_queue;   // guarded by m_pacer_mutex
+    bool m_pacer_stop{false};                         // guarded by m_pacer_mutex
+    std::size_t m_pacer_dropped_frames{0};            // guarded by m_pacer_mutex
 
     // [diag] Size accounting for buffers arriving from the transport. Off by
     // default; enable with -p diag.packet_sizes:=true when investigating

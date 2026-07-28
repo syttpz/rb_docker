@@ -12,6 +12,9 @@ src/maps/*
 # local Claude Code settings (machine-specific, not shared)
 .claude/settings.local.json
 
+# scratch test command sheets (machine-specific paths, not part of the package)
+src/bridge_node/battery_state_test.txt
+
 # editor / OS cruft
 .vscode/
 .idea/

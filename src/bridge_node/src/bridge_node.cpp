@@ -58,6 +58,8 @@ BridgeNode::BridgeNode() : rclcpp::Node("ros2_bridge_node")
     const auto data_protocol_name = declare_parameter<std::string>("corelink.data_protocol", "udp");
     declare_parameter<int>("qos", 10);
     declare_parameter<std::string>("qos.reliability", "reliable");
+    m_max_rate_hz = declare_parameter<double>("topic.max_rate", 0.0);
+    m_diag_packet_sizes = declare_parameter<bool>("diag.packet_sizes", false);
 
     if (m_workspace.empty())
     {
@@ -155,6 +157,20 @@ void BridgeNode::setupFromCorelink()
 
 void BridgeNode::onLocalMessage(std::shared_ptr<rclcpp::SerializedMessage> message)
 {
+    // Drop messages that arrive faster than topic.max_rate. Steady clock, so a
+    // simulated or stepped /clock can't stall the link or let it burst.
+    if (m_max_rate_hz > 0.0)
+    {
+        const auto now = std::chrono::steady_clock::now();
+        const auto min_gap = std::chrono::duration<double>(1.0 / m_max_rate_hz);
+        if (m_last_forwarded_at.time_since_epoch().count() != 0 &&
+            now - m_last_forwarded_at < std::chrono::duration_cast<std::chrono::steady_clock::duration>(min_gap))
+        {
+            return;
+        }
+        m_last_forwarded_at = now;
+    }
+
     // Raw CDR -> one or more fragment packets. Small frames still produce a
     // single (last) fragment so the receiver's reassembly path is uniform.
     const auto &raw = message->get_rcl_serialized_message();
@@ -171,9 +187,46 @@ void BridgeNode::onLocalMessage(std::shared_ptr<rclcpp::SerializedMessage> messa
 
 void BridgeNode::onCorelinkMessage(const corelink::utils::json & /*headers*/, const std::vector<uint8_t> &data)
 {
+    // [diag] Every buffer handed up by the transport should be exactly one
+    // fragment as it left the sender. Anything else means the transport
+    // coalesced or truncated datagrams before we ever saw them, which no
+    // amount of reassembly logic on our side can recover.
+    if (m_diag_packet_sizes)
+    {
+        ++m_diag_packets_seen;
+        m_diag_size_histogram[data.size()]++;
+        if (data.size() % (bridge_node::kFragmentHeaderSize + bridge_node::kMaxFragmentPayload) == 0 &&
+            data.size() > bridge_node::kFragmentHeaderSize + bridge_node::kMaxFragmentPayload)
+        {
+            RCLCPP_WARN(get_logger(), "[diag] coalesced buffer: %zu bytes (= %zu fragments glued together)",
+                        data.size(), data.size() / (bridge_node::kFragmentHeaderSize + bridge_node::kMaxFragmentPayload));
+        }
+        if (m_diag_packets_seen % 1000 == 0)
+        {
+            std::string hist;
+            for (const auto &[size, count] : m_diag_size_histogram)
+            {
+                hist += " " + std::to_string(size) + "x" + std::to_string(count);
+            }
+            RCLCPP_INFO(get_logger(), "[diag] %zu buffers received, sizes:%s",
+                        m_diag_packets_seen, hist.c_str());
+        }
+    }
+
     // Feed the fragment into the reassembler; only publish once a whole frame
-    // has been reconstructed.
-    auto frame = m_reassembler.feed(data);
+    // has been reconstructed. This runs on Corelink's event loop thread, where
+    // an escaping exception would take the process down, so a malformed buffer
+    // (shorter than a fragment header) is logged and dropped instead.
+    std::optional<std::vector<uint8_t>> frame;
+    try
+    {
+        frame = m_reassembler.feed(data);
+    }
+    catch (const std::exception &e)
+    {
+        RCLCPP_WARN(get_logger(), "Dropping malformed buffer of %zu bytes: %s", data.size(), e.what());
+        return;
+    }
     if (!frame)
     {
         return;

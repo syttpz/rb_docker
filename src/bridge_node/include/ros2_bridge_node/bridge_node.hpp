@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+#include <map>
 #include <memory>
 #include <string>
 
@@ -50,6 +52,20 @@ private:
     // touched from Corelink's single stream-callback thread.
     bridge_node::Slicer m_slicer;
     bridge_node::Reassembler m_reassembler;
+
+    // Outgoing rate cap, in Hz. 0 disables throttling (forward every message).
+    // Lets a high-rate source (e.g. a 15Hz camera) be bridged at a lower rate
+    // without touching the source node, so the link budget can be swept from
+    // the command line.
+    double m_max_rate_hz{0.0};
+    std::chrono::steady_clock::time_point m_last_forwarded_at{};
+
+    // [diag] Size accounting for buffers arriving from the transport. Off by
+    // default; enable with -p diag.packet_sizes:=true when investigating
+    // fragment loss that the kernel counters say is not on the network.
+    bool m_diag_packet_sizes{false};
+    std::size_t m_diag_packets_seen{0};
+    std::map<std::size_t, std::size_t> m_diag_size_histogram;
 
     corelink::core::network::channel_id_type m_data_channel_id{};
     rclcpp::GenericSubscription::SharedPtr m_local_subscription;

@@ -87,8 +87,6 @@ void Reassembler::evict_stale(uint32_t newest_image_number)
         m_newest_image_number = newest_image_number;
     }
 
-    // Erase any in-progress frame more than kReassemblyWindow behind the
-    // newest, its missing fragments are never coming. 
     for(auto it = m_in_progress.begin(); it != m_in_progress.end(); ){
         if(m_newest_image_number > it->first &&
            m_newest_image_number - it->first > kReassemblyWindow){

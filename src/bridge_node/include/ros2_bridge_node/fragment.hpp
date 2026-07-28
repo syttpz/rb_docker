@@ -42,41 +42,33 @@ auto unpack_packet(const std::vector<uint8_t>& packet)
 
 
 
-
-// slicer class
 class Slicer{
 public:
-    // Splits one serialized frame into >=1 wire packets, each carrying a
-    // FragmentHeader. Fragments of the same frame share an image_number and
-    // are numbered 0..N-1 in sequence_number; the final one is flagged last.
-    // Increments the image counter exactly once per call.
     std::vector<std::vector<uint8_t>> slice(const uint8_t* data, std::size_t len);
 
 private:
     uint32_t cur_image_num{0}; //++ on slice
 };
 
-// reassemble
+
 class Reassembler {
 public:
-    // Feeds one received fragment
+    // feeds one received fragment
     std::optional<std::vector<uint8_t>> feed(const std::vector<uint8_t>& packet);
 
 private:
-    // Fragments collected so far for one in-progress frame.
     struct PartialFrame {
-        std::map<uint32_t, std::vector<uint8_t>> chunks;  // keyed by sequence_number
+        std::map<uint32_t, std::vector<uint8_t>> chunks;  // stores sequence
         bool seen_last{false};
-        uint32_t last_seq{0};                             // valid once seen_last
+        uint32_t last_seq{0};                            
     };
 
-    // Drop in-progress frames too old to ever complete; 
     void evict_stale(uint32_t newest_image_number);
 
     std::map<uint32_t, PartialFrame> m_in_progress;
     uint32_t m_newest_image_number{0};
 
-    // How many frames behind the newest to keep before giving up on them.
+
     static constexpr uint32_t kReassemblyWindow = 4;
 };
 

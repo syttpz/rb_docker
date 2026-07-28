@@ -5,18 +5,32 @@
 #
 # RUN IT (inside the robot container):
 #     docker exec -it robot bash -lc '/root/ros2_ws/src/exportmap.sh'
-#   optionally pass a specific database:
-#     ./src/exportmap.sh /root/ros2_ws/src/maps/rtabmap.db
+#   optionally pass a run folder or a specific database:
+#     ./src/exportmap.sh /root/ros2_ws/src/maps/map_20260728_120000
+#     ./src/exportmap.sh /root/ros2_ws/src/maps/map_20260728_120000/rtabmap.db
 #
-# Output PLYs land next to the database (src/maps/, bind-mounted to the Pi).
+# With no argument, the newest map_* folder is used.
+# Output PLYs land next to the database (in the run folder).
 #
 set -o pipefail
 source /opt/ros/humble/setup.bash
 
-DB="${1:-/root/ros2_ws/src/maps/rtabmap.db}"
+MAP_DIR="/root/ros2_ws/src/maps"
+
+ARG="${1:-}"
+if [ -z "$ARG" ]; then
+  # newest run folder
+  RUN_DIR="$(ls -1d "$MAP_DIR"/map_* 2>/dev/null | sort | tail -n1)"
+  DB="$RUN_DIR/rtabmap.db"
+elif [ -d "$ARG" ]; then
+  DB="$ARG/rtabmap.db"
+else
+  DB="$ARG"
+fi
+
 if [ ! -f "$DB" ]; then
   echo "[exportmap] database not found: $DB"
-  echo "[exportmap] run startmapping.sh first, or pass the .db path as an argument."
+  echo "[exportmap] run startmapping.sh first, or pass a run folder / .db path as an argument."
   exit 1
 fi
 OUT_DIR="$(dirname "$DB")"

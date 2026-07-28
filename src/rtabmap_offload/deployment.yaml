@@ -38,7 +38,7 @@ spec:
     spec:
       containers:
         - name: rtabmap-offload
-          image: eddyhu217/offload:latest
+          image: eddyhu217/offload:2026-07-28
           imagePullPolicy: Always
 
           env:

@@ -46,13 +46,14 @@ auto unpack_packet(const std::vector<uint8_t>& packet)
 // slicer class
 class Slicer{
 public:
-    
-private:
-    void slice(auto& rcl_msg); //serialized data
+    // Splits one serialized frame into >=1 wire packets, each carrying a
+    // FragmentHeader. Fragments of the same frame share an image_number and
+    // are numbered 0..N-1 in sequence_number; the final one is flagged last.
+    // Increments the image counter exactly once per call.
+    std::vector<std::vector<uint8_t>> slice(const uint8_t* data, std::size_t len);
 
+private:
     uint32_t cur_image_num{0}; //++ on slice
-    uint32_t cur_sequence_num{0}; //reset on serialization
-    
 };
 
 // reassemble

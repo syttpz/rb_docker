@@ -32,6 +32,7 @@ add_executable(ros2_bridge_node
   src/main.cpp
   src/bridge_node.cpp
   src/corelink_transport.cpp
+  src/fragment.cpp
 )
 
 target_include_directories(ros2_bridge_node PRIVATE

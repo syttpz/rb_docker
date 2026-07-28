@@ -8,6 +8,7 @@
 #include <rclcpp/generic_subscription.hpp>
 
 #include "ros2_bridge_node/corelink_transport.hpp"
+#include "ros2_bridge_node/fragment.hpp"
 
 namespace ros2_bridge_node
 {
@@ -43,6 +44,12 @@ private:
     std::string m_workspace;
 
     std::unique_ptr<CorelinkTransport> m_transport;
+
+    // Fragmentation: outgoing frames are sliced into MTU-sized packets,
+    // incoming packets are reassembled back into whole frames. Only ever
+    // touched from Corelink's single stream-callback thread.
+    bridge_node::Slicer m_slicer;
+    bridge_node::Reassembler m_reassembler;
 
     corelink::core::network::channel_id_type m_data_channel_id{};
     rclcpp::GenericSubscription::SharedPtr m_local_subscription;

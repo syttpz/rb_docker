@@ -1,5 +1,4 @@
 #include "ros2_bridge_node/bridge_node.hpp"
-#include "fragment.hpp"
 
 #include <cstring> // memcpy
 
@@ -155,47 +154,37 @@ void BridgeNode::setupFromCorelink()
 }
 
 void BridgeNode::onLocalMessage(std::shared_ptr<rclcpp::SerializedMessage> message)
-{   
-    // Raw CDR
+{
+    // Raw CDR -> one or more fragment packets. Small frames still produce a
+    // single (last) fragment so the receiver's reassembly path is uniform.
     const auto &raw = message->get_rcl_serialized_message();
+    auto packets = m_slicer.slice(raw.buffer, raw.buffer_length);
 
-    // Slicer
-    if(raw.size() > bridge_node::kMaxFragmentPayload){
-        // Slicer initialization
-        uint32_t cur_image_num{0}; //++ on slice, note:: this needs to be global param
-        //on LocalMessage callback, cur_image_num ++ 
-        uint32_t cur_sequence_num{0}; //reset on serialization
-        bool is_last_fragment = false;
+    RCLCPP_INFO(get_logger(), "Local message on '%s' (%zu bytes) -> %zu fragment(s), sending to Corelink.",
+                m_topic_name.c_str(), static_cast<std::size_t>(raw.buffer_length), packets.size());
 
-        std::size_t sequence_num = ceil(raw.size()/bridge_node::kMaxFragmentPayload);
-
-
-        for(std::size_t q = 0; q < sequence_num; q++){
-            // Pack
-            if(q == sequence_num) is_last_fragment = true;
-            std::vector<uint8_t> data(raw.buffer + q * bridge_node::kMaxFragmentPayload, bridge_node::kMaxFragmentPayload);
-            data = bridge_node::pack_packet(cur_image_num, cur_sequence_num, is_last_fragment, data);
-            RCLCPP_INFO(get_logger(), "Image '%s', Packet '%s' sent to", cur_image_num, cur_sequence_num);
-            cur_sequence_num ++;
-            m_transport->sendData(m_data_channel_id, std::move(data));
-        }
-    }else{
-        //send once
-        std::vector<uint8_t> data(raw.buffer, raw.buffer + raw.buffer_length);
-        RCLCPP_INFO(get_logger(), "Local message on '%s' (%zu bytes), sending to Corelink.",
-                    m_topic_name.c_str(), data.size());
-        m_transport->sendData(m_data_channel_id, std::move(data));
+    for (auto &packet : packets)
+    {
+        m_transport->sendData(m_data_channel_id, std::move(packet));
     }
 }
 
 void BridgeNode::onCorelinkMessage(const corelink::utils::json & /*headers*/, const std::vector<uint8_t> &data)
 {
-    RCLCPP_INFO(get_logger(), "Received %zu bytes from Corelink, republishing '%s' locally.",
-                data.size(), m_topic_name.c_str());
-    rclcpp::SerializedMessage serialized(data.size());
+    // Feed the fragment into the reassembler; only publish once a whole frame
+    // has been reconstructed.
+    auto frame = m_reassembler.feed(data);
+    if (!frame)
+    {
+        return;
+    }
+
+    RCLCPP_INFO(get_logger(), "Reassembled %zu bytes from Corelink, republishing '%s' locally.",
+                frame->size(), m_topic_name.c_str());
+    rclcpp::SerializedMessage serialized(frame->size());
     auto &raw = serialized.get_rcl_serialized_message();
-    std::memcpy(raw.buffer, data.data(), data.size());
-    raw.buffer_length = data.size();
+    std::memcpy(raw.buffer, frame->data(), frame->size());
+    raw.buffer_length = frame->size();
     m_local_publisher->publish(serialized);
 }
 

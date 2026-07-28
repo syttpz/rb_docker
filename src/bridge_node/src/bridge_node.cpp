@@ -61,12 +61,7 @@ BridgeNode::BridgeNode() : rclcpp::Node("ros2_bridge_node")
     m_max_rate_hz = declare_parameter<double>("topic.max_rate", 0.0);
     m_diag_packet_sizes = declare_parameter<bool>("diag.packet_sizes", false);
 
-    // Pacing. A 921 KB frame is 58 fragments enqueued in microseconds, which is
-    // ~4x a stock 208 KB kernel send buffer: the tail of the burst is dropped
-    // before it ever reaches the NIC. Spacing the fragments out keeps the queue
-    // shallow, and since UDP has no congestion control it is also the only way
-    // this bridge can avoid steamrolling a shared link.
-    // Rule of thumb: pacing_us ~ (frame period / fragment count) / 2, e.g. 5 Hz
+    // pacing_us ~ (frame period / fragment count) / 2, e.g. 5 Hz
     // and 58 fragments -> 200000/58/2 ~ 1700.
     m_pacing_us = declare_parameter<int64_t>("send.pacing_us", 0);
     m_pacer_queue_max = static_cast<std::size_t>(declare_parameter<int>("send.pacing_queue_max", 128));
@@ -130,7 +125,6 @@ void BridgeNode::setupToCorelink()
                 RCLCPP_INFO(get_logger(), "Corelink sender stream ready (channel %llu). Subscribing to '%s' locally.",
                             static_cast<unsigned long long>(channel_id), m_topic_name.c_str());
 
-                // Started here, not in the constructor: the pacer sends on
                 // m_data_channel_id, which only becomes valid now.
                 if (m_pacing_us > 0 && !m_pacer_thread.joinable())
                 {
@@ -176,8 +170,7 @@ void BridgeNode::setupFromCorelink()
 
 void BridgeNode::onLocalMessage(std::shared_ptr<rclcpp::SerializedMessage> message)
 {
-    // Drop messages that arrive faster than topic.max_rate. Steady clock, so a
-    // simulated or stepped /clock can't stall the link or let it burst.
+    // Drop messages that arrive faster than topic.max_rate.
     if (m_max_rate_hz > 0.0)
     {
         const auto now = std::chrono::steady_clock::now();
@@ -214,10 +207,6 @@ void BridgeNode::dispatchFragments(std::vector<std::vector<uint8_t>> &&packets)
 
     std::lock_guard<std::mutex> lock(m_pacer_mutex);
 
-    // Drop the new frame rather than the one already going out: fragments are
-    // all-or-nothing, so a partially sent frame is wasted bandwidth, while a
-    // frame never enqueued costs nothing. Backing up here means the link cannot
-    // keep up with the source rate -- lower topic.max_rate or compress.
     if (m_pacer_queue.size() + packets.size() > m_pacer_queue_max)
     {
         ++m_pacer_dropped_frames;
@@ -272,10 +261,7 @@ BridgeNode::~BridgeNode()
 
 void BridgeNode::onCorelinkMessage(const corelink::utils::json & /*headers*/, const std::vector<uint8_t> &data)
 {
-    // [diag] Every buffer handed up by the transport should be exactly one
-    // fragment as it left the sender. Anything else means the transport
-    // coalesced or truncated datagrams before we ever saw them, which no
-    // amount of reassembly logic on our side can recover.
+
     if (m_diag_packet_sizes)
     {
         ++m_diag_packets_seen;
@@ -298,10 +284,7 @@ void BridgeNode::onCorelinkMessage(const corelink::utils::json & /*headers*/, co
         }
     }
 
-    // Feed the fragment into the reassembler; only publish once a whole frame
-    // has been reconstructed. This runs on Corelink's event loop thread, where
-    // an escaping exception would take the process down, so a malformed buffer
-    // (shorter than a fragment header) is logged and dropped instead.
+    // Feed the fragment into the reassembler; only publish once a whole frame has been reconstructed. 
     std::optional<std::vector<uint8_t>> frame;
     try
     {

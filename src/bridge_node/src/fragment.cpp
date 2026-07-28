@@ -44,10 +44,6 @@ auto unpack_packet(const std::vector<uint8_t> &packet) -> std::tuple<uint32_t, u
     return {Frheader.image_number, Frheader.sequence_number, Frheader.is_last_fragment, payload};
 }
 
-// [frame -> N packets] on the sender, one packet at a time back into whole
-// frames here. A frame is complete once we've seen its last fragment AND hold
-// every sequence number 0..last_seq. Returns the reassembled bytes exactly
-// once, on the fragment that completes the frame; std::nullopt otherwise.
 std::optional<std::vector<uint8_t>>
 Reassembler::feed(const std::vector<uint8_t> &packet)
 {
@@ -62,14 +58,12 @@ Reassembler::feed(const std::vector<uint8_t> &packet)
         frame.last_seq = sequence_number;
     }
 
-    // Not done until the last fragment has arrived and no gaps remain. Because
-    // sequence numbers are dense (0..last_seq), the count is enough to know we
-    // have them all.
+
     if(!frame.seen_last || frame.chunks.size() != static_cast<std::size_t>(frame.last_seq) + 1){
         return std::nullopt;
     }
 
-    // Concatenate in sequence order (std::map keeps keys sorted).
+    // Concatenate in sequence order 
     std::vector<uint8_t> assembled;
     std::size_t total = 0;
     for(const auto &[seq, chunk] : frame.chunks){
@@ -94,8 +88,7 @@ void Reassembler::evict_stale(uint32_t newest_image_number)
     }
 
     // Erase any in-progress frame more than kReassemblyWindow behind the
-    // newest we've seen -- its missing fragments are never coming. Guard the
-    // subtraction against unsigned underflow.
+    // newest, its missing fragments are never coming. 
     for(auto it = m_in_progress.begin(); it != m_in_progress.end(); ){
         if(m_newest_image_number > it->first &&
            m_newest_image_number - it->first > kReassemblyWindow){
@@ -112,7 +105,7 @@ Slicer::slice(const uint8_t *data, std::size_t len)
 {
     std::vector<std::vector<uint8_t>> packets;
     if(len == 0){
-        return packets;  // nothing to send; pack_packet rejects empty payloads
+        return packets;  // reject empty payload
     }
 
     const uint32_t image_number = cur_image_num++;

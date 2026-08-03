@@ -67,6 +67,10 @@ RUN chmod +x ${ROS_WS}/src/rb_docker/ros_entrypoint.sh
 ENTRYPOINT ["/ros_ws/src/rb_docker/ros_entrypoint.sh"]
 
 
+
+# -------------receiver----------------
+
+# /battery _state receiver
 CMD ["ros2", "run", "ros2_bridge_node", "ros2_bridge_node", \
      "--ros-args", \
      "--params-file", "/ros_ws/install/ros2_bridge_node/share/ros2_bridge_node/config/server_side.yaml", \
@@ -74,3 +78,14 @@ CMD ["ros2", "run", "ros2_bridge_node", "ros2_bridge_node", \
      "-p", "topic.type:=sensor_msgs/msg/BatteryState", \
      "-p", "qos.reliability:=best_effort", \
      "-p", "corelink.data_protocol:=udp"]
+
+
+# 1. /camera/camera/color/image_raw
+# 2. /camera/camera/color/image_raw/compressed   (jpeg)
+# 3. /odom/ (create3 odom)
+# 4. /
+
+
+
+
+# -------------sender----------------

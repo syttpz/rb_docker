@@ -220,114 +220,101 @@ namespace corelink
                         (core::network::channel_id_type receiving_channel_id,
                          out<std::vector<uint8_t>> stream_data)
                 {
-                    // if we received a "packet" less than 8 bytes in size, drop it.
-                    if (stream_data.size() < 8)
+                    auto channel = self->m_corelink_channels.find(receiving_channel_id);
+                    if (channel == self->m_corelink_channels.end())
+                        return; // if we cannot find the channel, we cannot do anything. return
+
+                    auto data_channel_dsc = std::static_pointer_cast<corelink_client_data_channel_descriptor>(
+                            channel->second);
+                    bool can_have_multipart_frame = false;
+#ifdef CORELINK_USE_TCP
+                    can_have_multipart_frame =
+                            data_channel_dsc->protocol == core::network::constants::protocols::tcp;
+#endif
+
+                    // drop packet when protocal is not TCP, packet size less than 8 bytes
+                    // is essentially malformed packet
+                    if (!can_have_multipart_frame && stream_data.size() < 8)
                         return;
 
-                    auto channel = self->m_corelink_channels.find(receiving_channel_id);
-                    if (channel != self->m_corelink_channels.end())
+                    std::vector<uint8_t> &buffer = can_have_multipart_frame ?
+                                                   data_channel_dsc->incomplete_packet_buffer : stream_data;
+
+                    if (can_have_multipart_frame)
                     {
-                        auto data_channel_dsc = std::static_pointer_cast<corelink_client_data_channel_descriptor>(
-                                channel->second);
-                        bool can_have_multipart_frame = false;
-#ifdef CORELINK_USE_TCP
-                        can_have_multipart_frame =
-                                data_channel_dsc->protocol == core::network::constants::protocols::tcp;
-#endif
-                        constants::corelink_stream_id_type stream_id = 0;
-                        uint16_t header_size = 0, data_size = 0;
-                        // if we have anything pending previously, coalesce that with
-                        // the new frame and see if things work out.
-                        // if not, we throw it out it
-                        if (can_have_multipart_frame && !data_channel_dsc->incomplete_packet_buffer.empty())
+                        buffer.insert(buffer.end(), stream_data.begin(), stream_data.end());
+                    }
+
+                    constants::corelink_stream_id_type stream_id = 0;
+                    uint16_t header_size = 0, data_size = 0;
+                    size_t pkt_pos = 0;
+
+                    while (buffer.size() - pkt_pos >= 8)
+                    {
+                        header_size = corelink::utils::system::from_bytes<
+                                decltype(header_size),
+                                utils::system::endianness::little>
+                                (std::vector<uint8_t>(
+                                         buffer.begin() + pkt_pos,
+                                         buffer.begin() + pkt_pos + 2
+                                 )
+                                );
+                        data_size = corelink::utils::system::from_bytes<
+                                decltype(data_size),
+                                utils::system::endianness::little>
+                                (std::vector<uint8_t>(
+                                         buffer.begin() + pkt_pos + 2,
+                                         buffer.begin() + pkt_pos + 4
+                                 )
+                                );
+
+                        stream_id = corelink::utils::system::from_bytes<
+                                decltype(stream_id),
+                                utils::system::endianness::little>
+                                (std::vector<uint8_t>(
+                                         buffer.begin() + pkt_pos + 4,
+                                         buffer.begin() + pkt_pos + 8
+                                 )
+                                );
+
+                        if ((pkt_pos + 8 + header_size + data_size) > buffer.size())
+                            break;
+
+                        std::string header_str;
+                        if ((header_size > 0))
                         {
-                            stream_data.insert(
-                                    stream_data.begin(),
-                                    data_channel_dsc->incomplete_packet_buffer.begin(),
-                                    data_channel_dsc->incomplete_packet_buffer.end()
-                            );
-                            data_channel_dsc->incomplete_packet_buffer.erase(
-                                    data_channel_dsc->incomplete_packet_buffer.begin(),
-                                    data_channel_dsc->incomplete_packet_buffer.end()
-                            );
+                            header_str = std::string(buffer.begin() + pkt_pos + 8,
+                                                     buffer.begin() + pkt_pos + 8 + header_size);
                         }
 
-                        for (size_t pkt_pos = 0;;)
+                        std::vector<uint8_t> data_buff;
+                        if (data_size > 0)
                         {
-                            header_size = corelink::utils::system::from_bytes<
-                                    decltype(header_size),
-                                    utils::system::endianness::little>
-                                    (std::vector<uint8_t>(
-                                             stream_data.begin() + pkt_pos,
-                                             stream_data.begin() + pkt_pos + 2
-                                     )
-                                    );
-                            data_size = corelink::utils::system::from_bytes<
-                                    decltype(data_size),
-                                    utils::system::endianness::little>
-                                    (std::vector<uint8_t>(
-                                             stream_data.begin() + pkt_pos + 2,
-                                             stream_data.begin() + pkt_pos + 4
-                                     )
-                                    );
-
-                            stream_id = corelink::utils::system::from_bytes<
-                                    decltype(stream_id),
-                                    utils::system::endianness::little>
-                                    (std::vector<uint8_t>(
-                                             stream_data.begin() + pkt_pos + 4,
-                                             stream_data.begin() + pkt_pos + 8
-                                     )
-                                    );
-
-                            if ((pkt_pos + 8 + header_size + data_size) <= stream_data.size())
-                            {
-                                std::string header_str;
-                                if ((header_size > 0))
-                                {
-                                    header_str = std::string(stream_data.begin() + pkt_pos + 8,
-                                                             stream_data.begin() + pkt_pos + 8 + header_size);
-                                }
-
-                                std::vector<uint8_t> data_buff;
-                                if (data_size > 0)
-                                {
-                                    data_buff.insert(data_buff.end(),
-                                                     (stream_data.begin() + pkt_pos + 8 + header_size),
-                                                     stream_data.begin() + pkt_pos + 8 + header_size + data_size);
-                                }
-
-
-                                // call the user defined receive function
-                                if (data_channel_dsc->user_receive_handler)
-                                {
-                                    // call the user callback
-                                    data_channel_dsc->user_receive_handler(
-                                            receiving_channel_id,
-                                            stream_id,
-                                            utils::json(header_str),
-                                            data_buff
-                                    );
-                                }
-                                if (!can_have_multipart_frame) break;
-
-                                // set the packet pos to next packet
-                                pkt_pos += 8 + header_size + data_size;
-                            }
-                            else
-                            {
-                                if (can_have_multipart_frame)
-                                {
-                                    // looks like we got an incomplete chunk in this frame.
-                                    // we take the incomplete buffer items and append it to a temp buffer
-                                    data_channel_dsc->incomplete_packet_buffer.insert(
-                                            data_channel_dsc->incomplete_packet_buffer.end(),
-                                            stream_data.begin() + pkt_pos,
-                                            stream_data.end());
-                                }
-                                break;
-                            }
+                            data_buff.insert(data_buff.end(),
+                                             (buffer.begin() + pkt_pos + 8 + header_size),
+                                             buffer.begin() + pkt_pos + 8 + header_size + data_size);
                         }
+
+                        // call the user defined receive function
+                        if (data_channel_dsc->user_receive_handler)
+                        {
+                            // call the user callback
+                            data_channel_dsc->user_receive_handler(
+                                    receiving_channel_id,
+                                    stream_id,
+                                    utils::json(header_str),
+                                    data_buff
+                            );
+                        }
+                        if (!can_have_multipart_frame) break;
+
+                        // set the packet pos to next packet
+                        pkt_pos += 8 + header_size + data_size;
+                    }
+
+                    if (can_have_multipart_frame)
+                    {
+                        buffer.erase(buffer.begin(), buffer.begin() + pkt_pos);
                     }
                 };
 

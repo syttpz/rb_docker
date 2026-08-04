@@ -187,22 +187,15 @@ namespace corelink
                                 }
                                 else
                                 {
-                                    channel_impl->bytes_read += bytes_transferred;
-                                    if (!channel_impl->socket->available() ||
-                                        (channel_impl->bytes_read == (channel_impl->receive_buffer.size() - 1)))
+                                    // preserve datagram boundaries
+                                    if (channel_impl->on_receive && bytes_transferred > 0)
                                     {
-                                        if (channel_impl->on_receive)
-                                        {
-                                            std::vector<uint8_t>
-                                                    buff_copy(channel_impl->receive_buffer.data(),
-                                                              channel_impl->receive_buffer.data() +
-                                                              channel_impl->bytes_read);
-                                            channel_impl->on_receive(channel_impl->channel_id, buff_copy);
-                                            channel_impl->bytes_read = 0;
-                                        }
+                                        std::vector<uint8_t>
+                                                buff_copy(channel_impl->receive_buffer.data(),
+                                                          channel_impl->receive_buffer.data() +
+                                                          bytes_transferred);
+                                        channel_impl->on_receive(channel_impl->channel_id, buff_copy);
                                     }
-                                    else
-                                        self->start_receiver(channel_impl->channel_id);
                                 }
                                 if (reentrant)
                                     self->start_receiver(channel_impl->channel_id);

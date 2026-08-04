@@ -2,48 +2,7 @@
 
 范围：`src/bridge_node/corelink_cpp` 以及 `CorelinkTransport` 对它的调用。
 
-## CL-01：TCP 读取不足 8 字节时被永久丢弃
 
-- 严重度：P0
-- 证据：代码确认；与现有 TCP 卡顿 benchmark 高度一致
-- 位置：`corelink_cpp/include/core/corelink_client.hpp:219-225`
-
-Corelink data frame 的固定头是 8 字节，但 TCP 是字节流。一次 `async_read_some()` 可以返回任意正数个字节，包括 1～7 字节。当前回调在 `stream_data.size() < 8` 时直接 `return`，没有把这些字节加入 `incomplete_packet_buffer`。
-
-一旦开头若干字节被丢弃，后续字节会被当作 `header_size/data_size/stream_id`，整个连接可能持续失去帧边界。这能够解释“小消息低频偶尔正常，高频持续流严重卡顿”的现象。
-
-建议复现：使用本地 TCP server，每次刻意按 1、2、5 字节切割第一条 frame header，再发送剩余字节；确认 receiver 是否永久失步。
-
-## CL-02：TCP 多帧解析循环会读取 buffer 末尾之外
-
-- 严重度：P0
-- 证据：代码确认
-- 位置：`corelink_cpp/include/core/corelink_client.hpp:255-281`
-
-循环每次先无条件读取 8 字节头，只有读取后才判断完整 frame 是否存在。解析一个完整 frame 后，`pkt_pos` 会移动到下一帧；代码没有检查 `stream_data.size() - pkt_pos >= 8`。
-
-两种普通输入就会触发越界 iterator：
-
-1. buffer 恰好只包含一个或多个完整 frame，解析完最后一帧后 `pkt_pos == size`；
-2. 完整 frame 后还跟着 1～7 字节的下一帧头。
-
-这是 C++ 未定义行为，可能表现为崩溃、错误长度、静默失步或看似偶发的 stall。
-
-## CL-03：同一 TCP socket 上可能存在多个重叠 `async_write`
-
-- 严重度：P1
-- 证据：高风险潜在问题
-- 位置：`corelink_cpp/src/core/corelink_data_xchg_tcp_proto_manager.cc:144-198`
-
-每次 `send_data()` 都立即对同一个 socket 调用 `asio::async_write()`，没有 per-channel write queue，也没有 strand/状态位保证前一次写完成后才开始下一次。
-
-高频图像分片会快速产生大量 outstanding writes。应定向验证：
-
-- handler 是否按提交顺序完成；
-- 服务端实际字节流是否保持每条 Corelink frame 连续；
-- outstanding write 数与 stall 时间是否相关。
-
-控制通道代码自己已经通过 `channel_in_use` 串行化请求，但 data channel 没有同等保护。
 
 ## CL-04：UDP receiver 可能同时启动两个 receive 操作
 
@@ -93,20 +52,7 @@ UDP 保留 datagram 边界，一次 receive 就应该对应一个 datagram。当
 
 代码先原子读取/比较，再 `fetch_add` 或 `store`；“检查是否达到上界并决定回绕”不是一个原子事务。多个 I/O 线程并发分配 slot 时，可能得到越界值、重复 slot 或不符合预期的回绕顺序。
 
-## CL-08：TCP incomplete buffer 没有大小上限或失步恢复机制
 
-- 严重度：P1
-- 证据：高风险潜在问题
-- 位置：`corelink_cpp/include/core/corelink_client.hpp:242-329`
-
-一旦错误字节被解释成较大的 `header_size/data_size`，代码会持续把后续 TCP 数据追加到 `incomplete_packet_buffer`。没有：
-
-- 最大 frame 长度复核；
-- buffer 大小上限；
-- magic/version 用于重新同步；
-- 超时清理。
-
-因此一次 framing 错误可能变成长期停流和持续内存增长，而不是只丢一帧。
 
 ## CL-09：异步回调和 detached thread 存在对象生命周期竞态
 

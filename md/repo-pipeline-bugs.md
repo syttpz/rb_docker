@@ -25,19 +25,6 @@ Dockerfile 固定 clone GitHub 的 `fragment` 分支，而当前开发分支是 
 
 这会造成“以为在测试修复版，实际容器仍是旧版”的实验污染。
 
-## RP-03：RTAB-Map README 与 Dockerfile 已明显漂移
-
-- 严重度：P2
-- 证据：代码确认
-
-README 声称：
-
-- build context 是 `./src`，通过 `COPY bridge_node`；
-- bridge 不走 colcon；
-- 镜像默认 `CMD bash`；
-- credentials 不会进入镜像。
-
-实际 Dockerfile clone 整个 repo、运行 `colcon build`，默认启动 `/battery_state` receiver，且 clone 内容由远端 `.gitignore`/tracked state决定。按 README 操作不能可靠得到文档描述的环境。
 
 ## RP-04：offload 默认命令没有运行 RTAB-Map
 

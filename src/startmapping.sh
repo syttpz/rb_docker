@@ -87,7 +87,9 @@ setsid ros2 launch realsense2_camera rs_launch.py \
     depth_module.depth_profile:=640x480x15 \
     rgb_camera.color_profile:=640x480x15 \
     align_depth.enable:=true \
-    enable_gyro:=false enable_accel:=false &
+    enable_gyro:=false enable_accel:=false \
+    "camera.camera.color.image_raw.disable_pub_plugins:=[image_transport/compressedDepth]" \
+    "camera.camera.aligned_depth_to_color.image_raw.disable_pub_plugins:=[image_transport/compressed]" &
 CAM_PID=$!
 
 echo "[startmapping] 2/3 static TF ${BASE_FRAME} -> camera_link (edit CAM_* above)..."
@@ -103,9 +105,9 @@ sleep 6
 echo "[startmapping] recording rosbag -> $BAG_DIR"
 setsid ros2 bag record -o "$BAG_DIR" \
     "$CAM_NS/color/image_raw" \
+    "$CAM_NS/color/image_raw/compressed" \
     "$CAM_NS/aligned_depth_to_color/image_raw" \
-    "$CAM_NS/color/image_raw\compressed" \
-    "$CAM_NS/color/image_raw\compressedDepth" \
+    "$CAM_NS/aligned_depth_to_color/image_raw/compressedDepth" \
     "$CAM_NS/color/camera_info" \
     /tf /tf_static \
     /odom /imu \

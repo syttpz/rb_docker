@@ -70,22 +70,36 @@ ENTRYPOINT ["/ros_ws/src/rb_docker/ros_entrypoint.sh"]
 
 # -------------receiver----------------
 
-# /battery _state receiver
-CMD ["ros2", "run", "ros2_bridge_node", "ros2_bridge_node", \
-     "--ros-args", \
-     "--params-file", "/ros_ws/install/ros2_bridge_node/share/ros2_bridge_node/config/server_side.yaml", \
-     "-p", "topic.name:=/battery_state", \
-     "-p", "topic.type:=sensor_msgs/msg/BatteryState", \
-     "-p", "qos.reliability:=best_effort", \
-     "-p", "corelink.data_protocol:=udp"]
+# 1. image_raw - rgb color images
+# 2. aligned_depth_to_color - depth info
+# 3. camera_info - focal lenses
 
-
-# 1. /camera/camera/color/image_raw
-# 2. /camera/camera/color/image_raw/compressed   (jpeg)
-# 3. /odom/ (create3 odom)
-# 4. /
-
-
-
-
-# -------------sender----------------
+CMD ["bash", "-lc", "\
+ros2 run ros2_bridge_node ros2_bridge_node \
+  --ros-args \
+  --params-file /ros_ws/install/ros2_bridge_node/share/ros2_bridge_node/config/server_side.yaml \
+  -r __node:=color_image_receiver \
+  -p topic.name:=/camera/camera/color/image_raw \
+  -p topic.type:=sensor_msgs/msg/Image \
+  -p qos.reliability:=best_effort \
+  -p corelink.data_protocol:=udp \
+& \
+ros2 run ros2_bridge_node ros2_bridge_node \
+  --ros-args \
+  --params-file /ros_ws/install/ros2_bridge_node/share/ros2_bridge_node/config/server_side.yaml \
+  -r __node:=depth_image_receiver \
+  -p topic.name:=/camera/camera/aligned_depth_to_color/image_raw \
+  -p topic.type:=sensor_msgs/msg/Image \
+  -p qos.reliability:=best_effort \
+  -p corelink.data_protocol:=udp \
+& \
+ros2 run ros2_bridge_node ros2_bridge_node \
+  --ros-args \
+  --params-file /ros_ws/install/ros2_bridge_node/share/ros2_bridge_node/config/server_side.yaml \
+  -r __node:=camera_info_receiver \
+  -p topic.name:=/camera/camera/color/camera_info \
+  -p topic.type:=sensor_msgs/msg/CameraInfo \
+  -p qos.reliability:=best_effort \
+  -p corelink.data_protocol:=udp \
+& \
+wait"]

@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 # Map with RealSense + rtabmap (rtabmap's own visual odometry)
+#
+# Usage:  ./startmapping.sh [--record]
+#   --record   also record a rosbag of camera/tf/odom/etc. into the run folder.
+#              Off by default (mapping still produces the rtabmap db + 2D grid).
 set -o pipefail
+
+RECORD=0
+for _arg in "$@"; do
+  case "$_arg" in
+    --record|-r) RECORD=1 ;;
+    -h|--help)
+      echo "Usage: $(basename "$0") [--record]"
+      echo "  --record   also record a rosbag into the run folder (default: off)"
+      exit 0 ;;
+    *) echo "[startmapping] unknown argument: $_arg (use --record or --help)"; exit 2 ;;
+  esac
+done
 
 export ROS_DOMAIN_ID=0
 CAM_NS="/camera/camera"
@@ -19,7 +35,7 @@ source /opt/ros/humble/setup.bash
 [ -f /root/ros2_ws/install/setup.bash ] && source /root/ros2_ws/install/setup.bash
 mkdir -p "$MAP_DIR"
 
-# Every run gets its own timestamped folder holding db + bag + 2D grid.
+# Every run gets its own timestamped folder holding db + 2D grid (+ bag if --record).
 RUN_TS="$(date +%Y%m%d_%H%M%S)"
 RUN_DIR="$MAP_DIR/map_$RUN_TS"
 BAG_DIR="$RUN_DIR/bag"
@@ -102,21 +118,30 @@ TF_PID=$!
 echo "[startmapping] waiting for camera to come up..."
 sleep 6
 
-echo "[startmapping] recording rosbag -> $BAG_DIR"
-setsid ros2 bag record -o "$BAG_DIR" \
-    "$CAM_NS/color/image_raw" \
-    "$CAM_NS/color/image_raw/compressed" \
-    "$CAM_NS/aligned_depth_to_color/image_raw" \
-    "$CAM_NS/aligned_depth_to_color/image_raw/compressedDepth" \
-    "$CAM_NS/color/camera_info" \
-    /tf /tf_static \
-    /odom /imu \
-    /cmd_vel \
-    /wheel_ticks /wheel_vels /wheel_status \
-    /battery_state /kidnap_status /slip_status &
-BAG_PID=$!
+if [ "$RECORD" = 1 ]; then
+  echo "[startmapping] --record: recording source rosbag -> $BAG_DIR"
+  setsid ros2 bag record -o "$BAG_DIR" \
+      "$CAM_NS/color/image_raw" \
+      "$CAM_NS/aligned_depth_to_color/image_raw" \
+      "$CAM_NS/color/camera_info" \
+      "$CAM_NS/aligned_depth_to_color/camera_info" \
+      /tf \
+      /tf_static \
+      /odom \
+      /imu \
+      /cmd_vel \
+      /wheel_ticks \
+      /wheel_vels \
+      /wheel_status \
+      /battery_state \
+      /kidnap_status \
+      /slip_status &
+  BAG_PID=$!
+else
+  echo "[startmapping] rosbag recording OFF (pass --record to enable)"
+fi
 
-# Always start fresh; the working db is copied to $DB_OUT on shutdown.
+
 echo "[startmapping] 3/3 launching rtabmap (mapping mode, fresh database)..."
 setsid ros2 launch rtabmap_launch rtabmap.launch.py \
     rtabmap_args:="--delete_db_on_start" \

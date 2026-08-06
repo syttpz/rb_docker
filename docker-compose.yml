@@ -42,8 +42,8 @@ services:
     # camera
     command: >
       ros2 launch realsense2_camera rs_launch.py
-      depth_module.depth_profile:=640x480x15
-      rgb_camera.color_profile:=640x480x15
+      depth_module.depth_profile:=640x480x6
+      rgb_camera.color_profile:=640x480x6
       enable_gyro:=false
       enable_accel:=false
     depends_on:

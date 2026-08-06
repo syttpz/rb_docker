@@ -28,7 +28,7 @@ struct FragmentHeader {
 constexpr std::size_t kFragmentHeaderSize = 9;
 
 // max payload byte
-constexpr std::size_t kMaxFragmentPayload = 19000;
+constexpr std::size_t kMaxFragmentPayload = 16000;
 
 // MTU
 constexpr std::size_t MTU = 20000; //20 KB get the MTU dynamically?

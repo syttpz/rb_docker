@@ -105,7 +105,6 @@ setsid ros2 launch realsense2_camera rs_launch.py \
     rgb_camera.color_profile:=640x480x15 \
     align_depth.enable:=true \
     enable_gyro:=false enable_accel:=false \
-    "camera.camera.color.image_raw.disable_pub_plugins:=[image_transport/compressedDepth]" \
     "camera.camera.aligned_depth_to_color.image_raw.disable_pub_plugins:=[image_transport/compressed]" &
 CAM_PID=$!
 

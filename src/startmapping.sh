@@ -156,7 +156,8 @@ setsid ros2 launch rtabmap_launch rtabmap.launch.py \
     depth_topic:="$CAM_NS/aligned_depth_to_color/image_raw" \
     camera_info_topic:="$CAM_NS/color/camera_info" \
     approx_sync:=true \
-    approx_sync_max_interval:=0.02 \
+    topic_queue_size:=30 \
+    sync_queue_size:=30 \
     qos:=2 \
     rviz:=false \
     rtabmap_viz:=false \

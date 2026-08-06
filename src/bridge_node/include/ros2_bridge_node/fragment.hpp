@@ -27,7 +27,7 @@ struct FragmentHeader {
 // 9 byte header size
 constexpr std::size_t kFragmentHeaderSize = 9;
 
-// max payload byte
+// max payload byte, 20% convenience
 constexpr std::size_t kMaxFragmentPayload = 16000;
 
 // MTU

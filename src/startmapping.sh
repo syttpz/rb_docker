@@ -151,7 +151,6 @@ setsid ros2 launch rtabmap_launch rtabmap.launch.py \
     frame_id:="$BASE_FRAME" \
     visual_odometry:=false \
     odom_topic:="/odom" \
-    odom_frame_id:="odom" \
     subscribe_depth:=true \
     rgb_topic:="$CAM_NS/color/image_raw" \
     depth_topic:="$CAM_NS/aligned_depth_to_color/image_raw" \

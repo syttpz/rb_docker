@@ -95,11 +95,12 @@ def generate_launch_description():
     # (md/thesis-research-plan.md §7) still holds.
     default_run_id = os.environ.get('RUN_ID') or datetime.now().strftime('%Y%m%d-%H%M%S')
 
-    # UDP does not reach a pod behind the cluster's egress NAT: the Corelink
-    # control plane works (the receivers see the senders and subscribe), but the
-    # data channel is a separate inbound UDP socket with no NAT mapping, so not
-    # even a single-fragment 384-byte CameraInfo arrives. ws and tcp are
-    # outbound connections and traverse it.
+    # udp, because the receivers hold their own NAT mapping open now (see
+    # corelink.keepalive_s in bridge_node.hpp). Before that, a pod saw the whole
+    # control plane -- authentication, "new sender ... subscribing" -- and zero
+    # bytes of data, because the mapping expired in the minutes between pod
+    # start and the first frame. ws and tcp are outbound connections and avoid
+    # the mapping altogether, but then the experiment is no longer measuring UDP.
     default_protocol = os.environ.get('CORELINK_PROTOCOL', 'udp')
     database_path = ParameterValue(
         [LaunchConfiguration('database_dir'), '/rtabmap_',

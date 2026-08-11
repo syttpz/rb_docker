@@ -57,16 +57,19 @@ spec:
           # Pinned by digest so a rebuilt tag can never silently change what a
           # run was measured against (md/thesis-research-plan.md §7).
           # Drop the @sha256 suffix if you just want "whatever is on that tag".
-          image: eddyhu217/offload:2026-08-11@sha256:ef9368a10a873612f4c8f106710f985136a1c1dfbb7778bf93cd4f990017d566
+          image: eddyhu217/offload:2026-08-11-keepalive@sha256:84e979d7f179e4559ec8893eae4b0184f7734cd1ee6c2e656c059b2832cac376
           imagePullPolicy: IfNotPresent
 
           env:
             - name: ROS_DOMAIN_ID
               value: "0"
-            # Inbound UDP does not reach the pod through the cluster's egress
-            # NAT -- Corelink's control plane subscribes fine but no data
-            # arrives. ws is an outbound connection, like the control channel
-            # that already authenticates successfully from here.
+            # udp works from here as long as the receiver's NAT mapping is
+            # held open, which the bridge now does itself (corelink.keepalive_s,
+            # default 10 s). Measured: ~1 s from receiver-ready to first packet
+            # arrives, ~45 s does not. Switch to ws/tcp only if something makes
+            # the keepalive insufficient -- they are outbound connections, so
+            # they would sidestep the mapping entirely at the cost of no longer
+            # measuring UDP.
             # - name: CORELINK_PROTOCOL
             #   value: "ws"
             # Names the database as /root/.ros/rtabmap_<RUN_ID>.db. Left unset

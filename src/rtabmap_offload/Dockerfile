@@ -74,6 +74,14 @@ ENTRYPOINT ["/ros_ws/src/rb_docker/ros_entrypoint.sh"]
 # 2. aligned_depth_to_color - depth info
 # 3. camera_info - focal lenses
 
+
+# ------------sender------------------TODO
+
+# 1. map for navigation - /rtabmap/map
+# 2. 
+# 3. 
+
+
 CMD ["bash", "-lc", "\
 ros2 run ros2_bridge_node ros2_bridge_node \
   --ros-args \
@@ -102,4 +110,15 @@ ros2 run ros2_bridge_node ros2_bridge_node \
   -p qos.reliability:=best_effort \
   -p corelink.data_protocol:=udp \
 & \
+ros2 run ros2_bridge_node ros2_bridge_node \
+  --ros-args \
+  --params-file /ros_ws/install/ros2_bridge_node/share/ros2_bridge_node/config/robot_side.yaml \
+  -r __node:=rtabmap_sender \
+  -p topic.name:=/camera/camera/color/camera_info \
+  -p topic.type:=sensor_msgs/msg/CameraInfo \
+  -p qos.reliability:=best_effort \
+  -p corelink.data_protocol:=udp \
+& \
 wait"]
+
+

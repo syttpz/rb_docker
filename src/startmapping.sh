@@ -100,7 +100,6 @@ trap save_and_shutdown INT TERM
 # Launch children via setsid
 echo "[startmapping] 1/3 launching RealSense with aligned depth..."
 setsid ros2 launch realsense2_camera rs_launch.py \
-    log_level:=warn \
     depth_module.depth_profile:=640x480x15 \
     rgb_camera.color_profile:=640x480x15 \
     align_depth.enable:=true \
@@ -112,8 +111,7 @@ echo "[startmapping] 2/3 static TF ${BASE_FRAME} -> camera_link (edit CAM_* abov
 setsid ros2 run tf2_ros static_transform_publisher \
     --x "$CAM_X" --y "$CAM_Y" --z "$CAM_Z" \
     --roll "$CAM_ROLL" --pitch "$CAM_PITCH" --yaw "$CAM_YAW" \
-    --frame-id "$BASE_FRAME" --child-frame-id camera_link \
-    --ros-args --log-level warn &
+    --frame-id "$BASE_FRAME" --child-frame-id camera_link &
 TF_PID=$!
 
 echo "[startmapping] waiting for camera to come up..."
@@ -145,7 +143,6 @@ fi
 
 echo "[startmapping] 3/3 launching rtabmap (mapping mode, fresh database)..."
 setsid ros2 launch rtabmap_launch rtabmap.launch.py \
-    log_level:=warn \
     rtabmap_args:="--delete_db_on_start" \
     frame_id:="$BASE_FRAME" \
     visual_odometry:=false \

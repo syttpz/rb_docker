@@ -94,6 +94,13 @@ def generate_launch_description():
     # One file per run instead: the map survives, and "a fresh database per run"
     # (md/thesis-research-plan.md §7) still holds.
     default_run_id = os.environ.get('RUN_ID') or datetime.now().strftime('%Y%m%d-%H%M%S')
+
+    # UDP does not reach a pod behind the cluster's egress NAT: the Corelink
+    # control plane works (the receivers see the senders and subscribe), but the
+    # data channel is a separate inbound UDP socket with no NAT mapping, so not
+    # even a single-fragment 384-byte CameraInfo arrives. ws and tcp are
+    # outbound connections and traverse it.
+    default_protocol = os.environ.get('CORELINK_PROTOCOL', 'udp')
     database_path = ParameterValue(
         [LaunchConfiguration('database_dir'), '/rtabmap_',
          LaunchConfiguration('run_id'), '.db'],
@@ -115,8 +122,10 @@ def generate_launch_description():
             'params_file', default_value=default_params,
             description='Corelink params for the receivers (from_corelink side)'),
         DeclareLaunchArgument(
-            'protocol', default_value='udp',
-            description='Corelink data protocol: udp | tcp | websocket'),
+            'protocol', default_value=default_protocol,
+            description='Corelink data protocol: udp | tcp | ws. Defaults to '
+                        '$CORELINK_PROTOCOL so the deployment can switch it '
+                        'without rebuilding the image'),
         DeclareLaunchArgument(
             'reliability', default_value='best_effort',
             description='ROS QoS on both the receivers and the rtabmap nodes; '

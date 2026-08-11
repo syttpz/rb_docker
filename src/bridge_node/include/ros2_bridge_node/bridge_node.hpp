@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <deque>
@@ -51,6 +52,9 @@ private:
     void dispatchFragments(std::vector<std::vector<uint8_t>> &&packets);
     void pacerLoop();
 
+    // from_corelink only. See m_keepalive_s.
+    void startKeepalive();
+
     std::string m_topic_name;
     std::string m_topic_type;
     std::string m_direction;
@@ -91,6 +95,31 @@ private:
     bool m_diag_packet_sizes{false};
     std::size_t m_diag_packets_seen{0};
     std::map<std::size_t, std::size_t> m_diag_size_histogram;
+
+    // NAT keepalive for receivers, in seconds (0 disables).
+    //
+    // corelink_client.hpp punches the return path open with exactly one empty
+    // packet at on_init and never sends again. Behind a NAT that only holds an
+    // unreplied UDP flow for nf_conntrack_udp_timeout (30 s by default), the
+    // mapping is gone before a stream that starts later can use it -- which is
+    // why a k8s pod saw every control-plane event ("new sender ... subscribing")
+    // and not one byte of data. Verified: with ~1 s between receiver init and
+    // the first packet the data arrives; with ~45 s nothing does.
+    //
+    // Re-sending that same empty packet on a timer keeps the mapping alive, so
+    // it no longer matters how long after the pod starts the robot begins
+    // streaming. It also covers gaps in the stream itself.
+    //
+    // The timer has to be stopped on shutdown rather than just left to the
+    // destructor: a keepalive issued while Corelink is already tearing its
+    // sockets down aborts the process ("data channel error: Operation
+    // aborted", then SIGABRT from inside corelink_cpp). Cancelling from an
+    // on-shutdown callback closes that window -- with keepalive_s=0 the same
+    // teardown is clean, which is how the timer was identified as the cause.
+    int64_t m_keepalive_s{0};
+    std::atomic<bool> m_data_channel_ready{false};
+    rclcpp::TimerBase::SharedPtr m_keepalive_timer;
+    rclcpp::OnShutdownCallbackHandle m_shutdown_handle;
 
     corelink::core::network::channel_id_type m_data_channel_id{};
     rclcpp::GenericSubscription::SharedPtr m_local_subscription;

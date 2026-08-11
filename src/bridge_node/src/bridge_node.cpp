@@ -66,6 +66,10 @@ BridgeNode::BridgeNode() : rclcpp::Node("ros2_bridge_node")
     m_pacing_us = declare_parameter<int64_t>("send.pacing_us", 0);
     m_pacer_queue_max = static_cast<std::size_t>(declare_parameter<int>("send.pacing_queue_max", 128));
 
+    // 10 s against a 30 s conntrack timeout -- 3x margin, and one empty packet
+    // every 10 s per stream is nothing next to the image traffic.
+    m_keepalive_s = declare_parameter<int>("corelink.keepalive_s", 10);
+
     if (m_workspace.empty())
     {
         RCLCPP_FATAL(get_logger(), "E: workspace is required");
@@ -163,8 +167,47 @@ void BridgeNode::setupFromCorelink()
             [this](corelink::core::network::channel_id_type channel_id)
             {
                 m_data_channel_id = channel_id;
+                m_data_channel_ready = true;
                 RCLCPP_INFO(get_logger(), "Corelink receiver stream ready (channel %llu). Publishing '%s' locally.",
                             static_cast<unsigned long long>(channel_id), m_topic_name.c_str());
+                startKeepalive();
+            });
+}
+
+void BridgeNode::startKeepalive()
+{
+    if (m_keepalive_s <= 0 || m_keepalive_timer)
+    {
+        return;
+    }
+
+    RCLCPP_INFO(get_logger(), "NAT keepalive: empty packet every %ld s on the data channel.",
+                static_cast<long>(m_keepalive_s));
+
+    // Runs on the ROS executor, so it keeps firing regardless of what the
+    // Corelink thread is doing. The empty payload is byte-for-byte the same
+    // ping corelink_client.hpp sends at on_init.
+    m_keepalive_timer = create_wall_timer(
+            std::chrono::seconds(m_keepalive_s),
+            [this]
+            {
+                if (!m_data_channel_ready || !rclcpp::ok())
+                {
+                    return;
+                }
+                m_transport->sendData(m_data_channel_id, std::vector<uint8_t>());
+            });
+
+    // Runs during rclcpp::shutdown(), i.e. before the node and its transport
+    // are destroyed, so no keepalive can race Corelink's socket teardown.
+    m_shutdown_handle = get_node_base_interface()->get_context()->add_on_shutdown_callback(
+            [this]
+            {
+                m_data_channel_ready = false;
+                if (m_keepalive_timer)
+                {
+                    m_keepalive_timer->cancel();
+                }
             });
 }
 
@@ -261,6 +304,14 @@ BridgeNode::~BridgeNode()
 
 void BridgeNode::onCorelinkMessage(const corelink::utils::json & /*headers*/, const std::vector<uint8_t> &data)
 {
+    // Never a fragment (a fragment is at least a header). Dropped silently
+    // rather than through the malformed-buffer warning below, because the
+    // keepalive ping is exactly this and would otherwise spam the log every
+    // keepalive_s seconds if the server ever echoes it back.
+    if (data.empty())
+    {
+        return;
+    }
 
     if (m_diag_packet_sizes)
     {

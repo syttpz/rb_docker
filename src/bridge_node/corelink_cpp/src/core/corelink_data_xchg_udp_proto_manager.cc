@@ -138,7 +138,12 @@ namespace corelink
             {
                 auto channel_impl = std::dynamic_pointer_cast<udp_protocol_per_channel_descriptor>(
                         get_channel(channel_id));
-                if (channel_impl != nullptr)
+                // teardown() does socket.reset(), so the pointer is null after
+                // it runs. The completion handler below re-enters here after
+                // reporting the "Operation aborted" that teardown itself
+                // caused, which dereferenced that null pointer and crashed the
+                // process on every shutdown. See CORELINK_PATCHES.md patch 5.
+                if (channel_impl != nullptr && channel_impl->socket != nullptr)
                 {
                     if (!channel_impl->socket->is_open())
                     {
@@ -210,7 +215,9 @@ namespace corelink
             {
                 auto channel_impl = std::dynamic_pointer_cast<udp_protocol_per_channel_descriptor>(
                         get_channel(channel_id));
-                if (channel_impl != nullptr)
+                // Same null socket as in start_receiver: a send racing teardown
+                // must be dropped, not dereferenced.
+                if (channel_impl != nullptr && channel_impl->socket != nullptr)
                 {
                     if (!channel_impl->socket->is_open())
                     {

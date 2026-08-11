@@ -63,6 +63,12 @@ spec:
           env:
             - name: ROS_DOMAIN_ID
               value: "0"
+            # Inbound UDP does not reach the pod through the cluster's egress
+            # NAT -- Corelink's control plane subscribes fine but no data
+            # arrives. ws is an outbound connection, like the control channel
+            # that already authenticates successfully from here.
+            # - name: CORELINK_PROTOCOL
+            #   value: "ws"
             # Names the database as /root/.ros/rtabmap_<RUN_ID>.db. Left unset
             # so each pod start falls back to a launch-time timestamp and never
             # overwrites a previous run; set it to pin a meaningful id for one

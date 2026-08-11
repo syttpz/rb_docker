@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
-# Copy RTAB-Map databases off the k8s PVC onto this machine.
+# Pull an RTAB-Map database off the k8s PVC onto this machine.
 #
-#   ./fetch_map.sh                  # list what is on the volume
-#   ./fetch_map.sh latest           # pull the newest .db
-#   ./fetch_map.sh rtabmap_20260811-061430.db
-#   OUT=~/maps ./fetch_map.sh latest
+#   ./fetch_map.sh              # list what is on the volume
+#   ./fetch_map.sh save         # flush the running map and copy it here
+#   ./fetch_map.sh rtabmap_20260811-061430.db     # copy one by name
+#   OUT=~/maps ./fetch_map.sh save
 #
-# RTAB-Map writes its working memory out on SIGTERM, so a database is only
-# complete after the pod has been stopped. The intended cycle is:
+# `save` calls RTAB-Map's /rtabmap/backup service, which writes working memory
+# out to the database, snapshots it to <db>.back, and reloads -- the pod keeps
+# running throughout. That snapshot is a closed, consistent file, unlike the
+# live .db which rtabmap still has open, so it is what gets copied.
 #
-#   kubectl scale deploy/rtabmap-offload -n hsrn-robot --replicas=0   # flush
-#   kubectl scale deploy/rtabmap-offload -n hsrn-robot --replicas=1   # new run_id
-#   ./fetch_map.sh latest                                            # pull run N
-#
-# That works because each start picks a new run_id, so bringing the pod back up
-# never touches the previous run's file.
+# This matters because RTAB-Map otherwise only flushes on SIGTERM: during a run
+# the .db on the volume is nearly empty, and the map exists only in memory.
 set -eo pipefail
 
 NS="${NS:-hsrn-robot}"
@@ -30,32 +28,46 @@ POD="$(kubectl get pod -n "$NS" -l "$SELECTOR" \
 
 if [[ -z "$POD" ]]; then
   echo "no Running pod for -l $SELECTOR in namespace $NS." >&2
-  echo "The PVC is only reachable through a pod; scale back up to copy:" >&2
+  echo "The PVC is only reachable through a pod:" >&2
   echo "  kubectl scale deploy/rtabmap-offload -n $NS --replicas=1" >&2
   exit 1
 fi
 
-if [[ $# -eq 0 ]]; then
-  echo "pod: $POD"
-  echo "databases on $DB_DIR:"
-  kubectl exec -n "$NS" "$POD" -- sh -c "ls -lht $DB_DIR/*.db 2>/dev/null || echo '  (none yet)'"
+# `ros2` needs the workspace sourced, which a bare `kubectl exec` does not do.
+in_pod() { kubectl exec -n "$NS" "$POD" -- bash -lc "$1"; }
+
+pull() {
+  local remote="$1" local_name="$2"
+  mkdir -p "$OUT"
+  echo "copying $POD:$remote -> $OUT/$local_name"
+  kubectl cp -n "$NS" "$POD:$remote" "$OUT/$local_name"
+  ls -lh "$OUT/$local_name"
   echo
-  echo "pull one with: $0 <name>   |   $0 latest"
-  exit 0
-fi
+  echo "inspect with:  rtabmap-databaseViewer $OUT/$local_name"
+}
 
-NAME="$1"
-if [[ "$NAME" == "latest" ]]; then
-  NAME="$(kubectl exec -n "$NS" "$POD" -- \
-            sh -c "ls -t $DB_DIR/*.db 2>/dev/null | head -1 | xargs -r basename")"
-  [[ -n "$NAME" ]] || { echo "no .db files in $DB_DIR yet" >&2; exit 1; }
-  echo "latest -> $NAME"
-fi
+case "${1:-list}" in
+  list)
+    echo "pod: $POD"
+    in_pod "ls -lht $DB_DIR/*.db $DB_DIR/*.db.back 2>/dev/null || echo '  (none yet)'"
+    echo
+    echo "flush + copy the running map with: $0 save"
+    ;;
 
-mkdir -p "$OUT"
-echo "copying $POD:$DB_DIR/$NAME -> $OUT/$NAME"
-kubectl cp -n "$NS" "$POD:$DB_DIR/$NAME" "$OUT/$NAME"
+  save)
+    # Ask the node itself rather than guessing, since run_id decides the name.
+    DB="$(in_pod 'ros2 param get /rtabmap database_path' | sed -n 's/^String value is: //p')"
+    [[ -n "$DB" ]] || { echo "could not read database_path from /rtabmap" >&2; exit 1; }
+    echo "active database: $DB"
 
-ls -lh "$OUT/$NAME"
-echo
-echo "inspect with:  rtabmap-databaseViewer $OUT/$NAME"
+    in_pod 'ros2 service call /rtabmap/backup std_srvs/srv/Empty' >/dev/null
+    echo "backup done (working memory flushed)"
+
+    pull "${DB}.back" "$(basename "$DB")"
+    ;;
+
+  *)
+    NAME="$1"
+    pull "$DB_DIR/$NAME" "$NAME"
+    ;;
+esac

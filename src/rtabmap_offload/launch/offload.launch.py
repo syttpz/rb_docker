@@ -27,6 +27,7 @@ no /clock arriving, every node blocks forever.
 """
 
 import os
+from datetime import datetime
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -84,9 +85,19 @@ def generate_launch_description():
     reliability = LaunchConfiguration('reliability')
     frame_id = LaunchConfiguration('frame_id')
     use_sim_time = LaunchConfiguration('use_sim_time')
-    database_path = LaunchConfiguration('database_path')
     approx_sync_max_interval = LaunchConfiguration('approx_sync_max_interval')
     queue_size = LaunchConfiguration('queue_size')
+
+    # RTAB-Map only flushes working memory to the database on SIGTERM, so a
+    # fixed filename plus delete-on-start meant the completed map from run N was
+    # destroyed by the startup of run N+1 before it could be copied off the PVC.
+    # One file per run instead: the map survives, and "a fresh database per run"
+    # (md/thesis-research-plan.md §7) still holds.
+    default_run_id = os.environ.get('RUN_ID') or datetime.now().strftime('%Y%m%d-%H%M%S')
+    database_path = ParameterValue(
+        [LaunchConfiguration('database_dir'), '/rtabmap_',
+         LaunchConfiguration('run_id'), '.db'],
+        value_type=str)
 
     # Launch substitutions evaluate to strings, so anything that is not a string
     # parameter has to be wrapped or the node rejects it as the wrong type.
@@ -122,11 +133,17 @@ def generate_launch_description():
             'bridge_clock', default_value='false',
             description='Also receive /clock over Corelink'),
         DeclareLaunchArgument(
-            'database_path', default_value='/root/.ros/rtabmap.db',
-            description='Lands on the PVC in k8s'),
+            'run_id', default_value=default_run_id,
+            description='Names the database, so every pod start writes its own. '
+                        'Defaults to $RUN_ID, else a launch-time timestamp'),
         DeclareLaunchArgument(
-            'delete_db_on_start', default_value='true',
-            description='Each experiment run must start from a fresh database'),
+            'database_dir', default_value='/root/.ros',
+            description='The PVC mount point in k8s'),
+        DeclareLaunchArgument(
+            'delete_db_on_start', default_value='false',
+            description='Off because run_id already gives each run a fresh file. '
+                        'Turning it on would delete the previous run\'s map before '
+                        'it could be copied off the volume'),
         DeclareLaunchArgument(
             'approx_sync_max_interval', default_value='0.02',
             description='RGB-D pairing window in seconds. The TUM bags pair at '

@@ -33,8 +33,16 @@ if [[ -z "$POD" ]]; then
   exit 1
 fi
 
-# `ros2` needs the workspace sourced, which a bare `kubectl exec` does not do.
-in_pod() { kubectl exec -n "$NS" "$POD" -- bash -lc "$1"; }
+# `ros2` needs the workspace sourced, and `bash -lc` does NOT do it: a login
+# shell reads ~/.bash_profile / ~/.profile, while the Dockerfile only appends
+# the source lines to ~/.bashrc (which login shells skip). Source both setup
+# files explicitly instead of relying on any dotfile.
+ROS_SETUP="${ROS_SETUP:-/opt/ros/humble/setup.bash}"
+WS_SETUP="${WS_SETUP:-/ros_ws/install/setup.bash}"
+in_pod() {
+  kubectl exec -n "$NS" "$POD" -- bash -c \
+      "source '$ROS_SETUP'; if [ -f '$WS_SETUP' ]; then source '$WS_SETUP'; fi; $1"
+}
 
 pull() {
   local remote="$1" local_name="$2"

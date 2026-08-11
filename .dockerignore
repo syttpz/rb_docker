@@ -1,0 +1,26 @@
+# Keep the build context small -- datasets/ alone is 6.5 GB.
+datasets/
+src/maps/
+
+.git/
+.github/
+.vscode/
+.idea/
+.claude/
+
+# colcon / cmake artefacts from host builds; the image builds its own
+**/build/
+**/install/
+**/log/
+**/.cache/
+**/__pycache__/
+compile_commands.json
+
+# never bake real credentials into a pushed image
+**/config/credentials.yaml
+
+md/
+teleop/
+*.md
+*.swp
+*~

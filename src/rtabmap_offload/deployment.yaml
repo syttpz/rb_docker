@@ -12,6 +12,10 @@ spec:
   resources:
     requests:
       storage: 60Gi
+  # No storageClassName -> the cluster default is used. If the PVC sits in
+  # Pending after apply, the cluster has no default class; check
+  #   kubectl get storageclass
+  # and pin one here.
 
 ---
 apiVersion: apps/v1
@@ -26,6 +30,15 @@ metadata:
 spec:
   replicas: 1
 
+  # The PVC is ReadWriteOnce, so it can only be mounted by one node at a time.
+  # Under the default RollingUpdate the new pod is created *before* the old one
+  # is torn down, so it waits for a volume the old pod still holds while the old
+  # pod waits for the new one to become ready -- a deadlock on every redeploy.
+  # Recreate terminates the old pod first. Safe here because replicas is 1 and
+  # this is a batch-style workload with no availability requirement.
+  strategy:
+    type: Recreate
+
   selector:
     matchLabels:
       app: rtabmap-offload
@@ -36,19 +49,31 @@ spec:
         app: rtabmap-offload
 
     spec:
+      # rtabmap flushes its database on SIGTERM; don't cut that short.
+      terminationGracePeriodSeconds: 60
+
       containers:
         - name: rtabmap-offload
-          image: eddyhu217/offload:2026-08-04
-          imagePullPolicy: Always
+          # Pinned by digest so a rebuilt tag can never silently change what a
+          # run was measured against (md/thesis-research-plan.md §7).
+          # Drop the @sha256 suffix if you just want "whatever is on that tag".
+          image: eddyhu217/offload:2026-08-11@sha256:6ba9acfd73306363ffbe13e9589b319329a8357c56335d5a330ee40889f7ab5d
+          imagePullPolicy: IfNotPresent
 
           env:
             - name: ROS_DOMAIN_ID
               value: "0"
 
-          ports:
-            - name: http
-              containerPort: 8080
-              protocol: TCP
+          # rgbd_odometry and rtabmap are both CPU-bound. Without a request the
+          # scheduler treats this as best-effort and it gets throttled first
+          # under contention on a shared cluster.
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
 
           volumeMounts:
             - name: rtabmap-data

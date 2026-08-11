@@ -9,6 +9,12 @@ compile_commands.json
 src/maps/*
 !src/maps/.gitkeep
 
+# downloaded/converted test rosbags -- multi-GB, re-fetchable via datasets/README.md
+datasets/*
+!datasets/README.md
+!datasets/prepare_tum_ros2.py
+!datasets/fetch_tum.sh
+
 # local Claude Code settings (machine-specific, not shared)
 .claude/settings.local.json
 

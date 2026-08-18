@@ -1,0 +1,16 @@
+# Stable device name + access for the RPLIDAR A2M12.
+#
+# The A2M12 talks over a Silicon Labs CP2102 USB-serial bridge (10c4:ea60).
+# This creates /dev/rplidar -> /dev/ttyUSBn and opens read/write access so the
+# driver does not need root. Without it the port number can change between
+# reboots and a non-root user hits "permission denied" opening the port.
+#
+# Install on the HOST (the Pi), not inside the container -- the container gets
+# the device via --privileged / -v /dev:/dev:
+#
+#   sudo cp src/create3_nav/config/99-rplidar.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#
+# Then launch with serial_port:=/dev/rplidar. If another CP2102 device is also
+# attached, disambiguate by ATTRS{serial} instead of vendor/product.
+KERNEL=="ttyUSB*", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", MODE:="0666", GROUP:="dialout", SYMLINK+="rplidar"

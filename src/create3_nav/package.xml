@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>create3_nav</name>
+  <version>0.0.1</version>
+  <description>
+    Local autonomous navigation for an iRobot Create 3: RPLIDAR A2M12 bringup
+    (obstacle sensing) plus, later, nav2 patrol. Runs on the robot itself and is
+    independent of the Corelink offload pipeline in bridge_node / rtabmap_offload.
+  </description>
+  <maintainer email="bhu7035@gmail.com">syttpz</maintainer>
+  <license>TODO</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <!-- Slamtec RPLIDAR driver (A2M12: 256000 baud). Provides rplidar_node. -->
+  <exec_depend>rplidar_ros</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

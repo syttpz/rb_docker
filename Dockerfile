@@ -63,10 +63,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-humble-realsense2-* \
         # Rtabmap
         ros-humble-rtabmap-ros \
-        # Nav2 
+        # Nav2
         ros-humble-navigation2 \
         ros-humble-nav2-bringup \
-        # Other tools 
+        # RPLIDAR A2M12 driver (provides rplidar_node; 256000 baud)
+        ros-humble-rplidar-ros \
+        # Other tools
         ros-humble-slam-toolbox \
         ros-humble-robot-localization \
         ros-humble-tf2-tools \

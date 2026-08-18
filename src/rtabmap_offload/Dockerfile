@@ -34,6 +34,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # rtabmap_odom (rgbd_odometry), rtabmap_slam (rtabmap).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-humble-rtabmap-ros \
+        ros-humble-compressed-image-transport \
+        ros-humble-compressed-depth-image-transport \
         ros-humble-navigation2 \
         ros-humble-nav2-bringup \
     && rm -rf /var/lib/apt/lists/*

@@ -90,4 +90,9 @@ source /opt/ros/humble/setup.bash
 ros2 bag play datasets/fr1_desk_rs --clock          # add --rate 0.5 if VO struggles
 ```
 
-Everything downstream must run with `use_sim_time:=true`.
+Everything downstream must run with `use_sim_time:=true`, and `/clock` must
+cross the same offload boundary. For the k8s receiver, apply
+`src/rtabmap_offload/deployment-tum-sim-time-patch.yaml`. Run the local senders
+with `BRIDGE_CLOCK=1`; the bundled script then adds both the `/clock` sender and
+`ros2 bag play --clock`. Restore a live-camera deployment afterwards with
+`deployment-live-time-patch.yaml`.

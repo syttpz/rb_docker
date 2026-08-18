@@ -22,7 +22,7 @@ CorelinkTransport::CorelinkTransport(
             .set_certificate_path(certificate_path);
 }
 
-void CorelinkTransport::connect(ReadyCallback on_ready)
+void CorelinkTransport::connect(ReadyCallback on_ready, DisconnectCallback on_disconnect)
 {
     if (!m_client.init_protocols())
     {
@@ -68,13 +68,40 @@ void CorelinkTransport::connect(ReadyCallback on_ready)
                             on_ready(true, "");
                         });
             },
-            [](corelink::core::network::channel_id_type)
+            [on_disconnect](corelink::core::network::channel_id_type)
             {
-                // Control channel dropped. The caller finds out about this
-                // indirectly: any subsequent request()/send_data() calls on
-                // this transport will simply fail. Reconnect handling is
-                // intentionally left out of this first prototype.
+                if (on_disconnect)
+                {
+                    on_disconnect("Corelink control channel dropped");
+                }
             });
+}
+
+void CorelinkTransport::keepControlAlive(ReadyCallback on_result)
+{
+    try
+    {
+        m_client.request(
+                m_control_channel_id,
+                corelink::client::corelink_functions::keep_alive,
+                nullptr,
+                [on_result](
+                        corelink::core::network::channel_id_type,
+                        const std::string &message,
+                        std::shared_ptr<corelink::client::request_response::responses::corelink_server_response_base> response)
+                {
+                    if (!response || response->status_code != 0)
+                    {
+                        on_result(false, response ? response->message : message);
+                        return;
+                    }
+                    on_result(true, "");
+                });
+    }
+    catch (const std::exception &e)
+    {
+        on_result(false, e.what());
+    }
 }
 
 void CorelinkTransport::createSender(
@@ -144,21 +171,25 @@ void CorelinkTransport::createReceiver(
                 }
                 std::fprintf(stderr, "[ros2_bridge_node] new sender for '%s' (user='%s'), subscribing...\n",
                         stream_type.c_str(), update->user.c_str());
-
                 m_client.request(
                         channel_id,
                         corelink::client::corelink_functions::subscribe,
                         std::make_shared<corelink::client::request_response::requests::modify_stream_subscription_request>(
                                 update->receiver_id,
                                 std::vector<corelink::client::constants::corelink_stream_id_type>{update->stream_id}),
-                        [](corelink::core::network::channel_id_type,
-                           const std::string &,
+                        [stream_type](corelink::core::network::channel_id_type,
+                           const std::string &message,
                            std::shared_ptr<corelink::client::request_response::responses::corelink_server_response_base> sub_response)
                         {
                             if (sub_response->status_code != 0)
                             {
                                 std::fprintf(stderr, "[ros2_bridge_node] subscribe failed: status_code=%d\n",
                                         sub_response->status_code);
+                            }
+                            else
+                            {
+                                std::fprintf(stderr, "[ros2_bridge_node] subscribed receiver to new sender for '%s': %s\n",
+                                        stream_type.c_str(), message.c_str());
                             }
                         });
             });

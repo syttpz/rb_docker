@@ -14,9 +14,11 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/generic_publisher.hpp>
 #include <rclcpp/generic_subscription.hpp>
+#include <std_msgs/msg/empty.hpp>
 
 #include "ros2_bridge_node/corelink_transport.hpp"
 #include "ros2_bridge_node/fragment.hpp"
+#include "ros2_bridge_node/pacing.hpp"
 
 namespace ros2_bridge_node
 {
@@ -24,7 +26,7 @@ namespace ros2_bridge_node
 // First-cut ROS2 <-> Corelink bridge node.
 //
 // Bridges exactly ONE local ROS2 topic to/from ONE Corelink stream
-// (workspace + stream_type == topic name), in exactly one direction
+// (workspace + stream_type), in exactly one direction
 // per node instance. This is deliberately the smallest possible thing
 // that proves the end-to-end path (see the incremental build order in
 // the plan: single hardcoded/parameterized topic before generalizing
@@ -48,17 +50,20 @@ private:
     void onCorelinkMessage(const corelink::utils::json &headers, const std::vector<uint8_t> &data);
 
     // Hands one frame's fragments to the transport. Either inline (no pacing)
-    // or via the pacer thread, depending on send.pacing_us.
+    // or via the pacer thread, using a manual or per-frame automatic gap.
     void dispatchFragments(std::vector<std::vector<uint8_t>> &&packets);
     void pacerLoop();
 
     // from_corelink only. See m_keepalive_s.
     void startKeepalive();
+    void startPeerActivityWatchdog();
+    void failReceiver(const std::string &reason);
 
     std::string m_topic_name;
     std::string m_topic_type;
     std::string m_direction;
     std::string m_workspace;
+    std::string m_stream_type;
 
     std::unique_ptr<CorelinkTransport> m_transport;
 
@@ -75,17 +80,24 @@ private:
     double m_max_rate_hz{0.0};
     std::chrono::steady_clock::time_point m_last_forwarded_at{};
 
-    // Pacing: spacing between consecutive fragments of the same frame, in
-    // microseconds. 0 sends the whole frame in one tight loop (original
-    // behaviour). Non-zero moves sending onto m_pacer_thread so the ROS
-    // executor is never blocked by the spacing sleeps.
+    // Manual pacing in microseconds. If zero and auto_target_rate_hz is
+    // positive, each frame derives its gap from its actual fragment count:
+    // period * (1-reserve_fraction) / fragments.
     int64_t m_pacing_us{0};
+    double m_auto_target_rate_hz{0.0};
+    double m_auto_reserve_fraction{0.1};
     std::size_t m_pacer_queue_max{0};
+
+    struct PacedFragment
+    {
+        std::vector<uint8_t> packet;
+        int64_t gap_after_us{0};
+    };
 
     std::thread m_pacer_thread;
     std::mutex m_pacer_mutex;
     std::condition_variable m_pacer_cv;
-    std::deque<std::vector<uint8_t>> m_pacer_queue;   // guarded by m_pacer_mutex
+    std::deque<PacedFragment> m_pacer_queue;          // guarded by m_pacer_mutex
     bool m_pacer_stop{false};                         // guarded by m_pacer_mutex
     std::size_t m_pacer_dropped_frames{0};            // guarded by m_pacer_mutex
 
@@ -118,8 +130,22 @@ private:
     // teardown is clean, which is how the timer was identified as the cause.
     int64_t m_keepalive_s{0};
     std::atomic<bool> m_data_channel_ready{false};
+    std::atomic<bool> m_receiver_failed{false};
     rclcpp::TimerBase::SharedPtr m_keepalive_timer;
     rclcpp::OnShutdownCallbackHandle m_shutdown_handle;
+
+    // A receiver that misses Corelink's one-shot new-sender event otherwise
+    // looks healthy forever. Peer activity arms a first-frame deadline only
+    // after another bridge stream is demonstrably flowing, so an idle robot
+    // does not cause a restart loop. Exiting lets the existing launch/K8s
+    // supervisor recreate the receiver while the sender already exists.
+    int64_t m_peer_activity_timeout_s{0};
+    std::atomic<bool> m_received_data{false};
+    bool m_peer_watchdog_armed{false};
+    std::chrono::steady_clock::time_point m_peer_watchdog_deadline{};
+    rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr m_activity_publisher;
+    rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr m_activity_subscription;
+    rclcpp::TimerBase::SharedPtr m_activity_watchdog_timer;
 
     corelink::core::network::channel_id_type m_data_channel_id{};
     rclcpp::GenericSubscription::SharedPtr m_local_subscription;

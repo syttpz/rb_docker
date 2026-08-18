@@ -43,9 +43,12 @@ QOS_BEST_EFFORT = '2'
 RGB_TOPIC = '/camera/camera/color/image_raw'
 DEPTH_TOPIC = '/camera/camera/aligned_depth_to_color/image_raw'
 INFO_TOPIC = '/camera/camera/color/camera_info'
+RGB_COMPRESSED_TOPIC = RGB_TOPIC + '/compressed'
+DEPTH_COMPRESSED_TOPIC = DEPTH_TOPIC + '/compressedDepth'
 
 
-def _receiver(name, topic, msgtype, params_file, protocol, reliability):
+def _receiver(name, topic, msgtype, params_file, protocol, reliability,
+              stream_type=None, condition=None):
     """One ros2_bridge_node pulling a single stream off Corelink.
 
     The params file uses a `/**:` wildcard section, so it still applies after
@@ -62,6 +65,7 @@ def _receiver(name, topic, msgtype, params_file, protocol, reliability):
         executable='ros2_bridge_node',
         name=name,
         output='screen',
+        condition=condition,
         on_exit=Shutdown(reason=f'{name} exited'),
         parameters=[
             params_file,
@@ -69,7 +73,9 @@ def _receiver(name, topic, msgtype, params_file, protocol, reliability):
                 'topic.name': topic,
                 'topic.type': msgtype,
                 'topic.direction': 'from_corelink',
+                'corelink.stream_type': stream_type or topic,
                 'corelink.data_protocol': protocol,
+                'corelink.peer_activity_timeout_s': 10,
                 'qos.reliability': reliability,
             },
         ],
@@ -143,6 +149,12 @@ def generate_launch_description():
             'bridge_clock', default_value='false',
             description='Also receive /clock over Corelink'),
         DeclareLaunchArgument(
+            'compress_rgb', default_value='true',
+            description='Receive JPEG RGB and decode it before rgbd_sync'),
+        DeclareLaunchArgument(
+            'compress_depth', default_value='true',
+            description='Receive lossless compressedDepth and decode it before rgbd_sync'),
+        DeclareLaunchArgument(
             'run_id', default_value=default_run_id,
             description='Names the database, so every pod start writes its own. '
                         'Defaults to $RUN_ID, else a launch-time timestamp'),
@@ -155,22 +167,57 @@ def generate_launch_description():
                         'Turning it on would delete the previous run\'s map before '
                         'it could be copied off the volume'),
         DeclareLaunchArgument(
-            'approx_sync_max_interval', default_value='0.02',
+            'approx_sync_max_interval', default_value='0.05',
             description='RGB-D pairing window in seconds. The TUM bags pair at '
-                        'median 11.9 ms / p95 17.6 ms'),
+                        'median 11.9 ms / p95 17.6 ms; 50 ms also tolerates '
+                        'independent pre-transport throttling'),
         DeclareLaunchArgument(
             'queue_size', default_value='30',
             description='Deep enough to ride out reassembly jitter'),
     ]
 
     receivers = [
+        _receiver('color_image_receiver', RGB_COMPRESSED_TOPIC,
+                  'sensor_msgs/msg/CompressedImage', params_file, protocol,
+                  # image_transport's Humble republisher requests reliable
+                  # input QoS. This is only the pod-local publisher; Corelink
+                  # still carries the stream over the selected UDP protocol.
+                  'reliable', stream_type=RGB_TOPIC,
+                  condition=IfCondition(LaunchConfiguration('compress_rgb'))),
         _receiver('color_image_receiver', RGB_TOPIC,
-                  'sensor_msgs/msg/Image', params_file, protocol, reliability),
+                  'sensor_msgs/msg/Image', params_file, protocol, reliability,
+                  condition=UnlessCondition(LaunchConfiguration('compress_rgb'))),
+        _receiver('depth_image_receiver', DEPTH_COMPRESSED_TOPIC,
+                  'sensor_msgs/msg/CompressedImage', params_file, protocol,
+                  'reliable', stream_type=DEPTH_TOPIC,
+                  condition=IfCondition(LaunchConfiguration('compress_depth'))),
         _receiver('depth_image_receiver', DEPTH_TOPIC,
-                  'sensor_msgs/msg/Image', params_file, protocol, reliability),
+                  'sensor_msgs/msg/Image', params_file, protocol, reliability,
+                  condition=UnlessCondition(LaunchConfiguration('compress_depth'))),
         _receiver('camera_info_receiver', INFO_TOPIC,
                   'sensor_msgs/msg/CameraInfo', params_file, protocol, reliability),
     ]
+
+    rgb_decoder = Node(
+        package='image_transport', executable='republish',
+        name='rgb_jpeg_decoder', output='screen',
+        condition=IfCondition(LaunchConfiguration('compress_rgb')),
+        arguments=['compressed', 'raw'],
+        remappings=[('in/compressed', RGB_COMPRESSED_TOPIC),
+                    ('out', RGB_TOPIC)],
+    )
+
+    # Humble logs a five-argument subscribeImpl compatibility error here, then
+    # intentionally falls back to the plugin's four-argument implementation.
+    # The fallback has been verified to decode and publish raw 16UC1 images.
+    depth_decoder = Node(
+        package='image_transport', executable='republish',
+        name='depth_png_decoder', output='screen',
+        condition=IfCondition(LaunchConfiguration('compress_depth')),
+        arguments=['compressedDepth', 'raw'],
+        remappings=[('in/compressedDepth', DEPTH_COMPRESSED_TOPIC),
+                    ('out', DEPTH_TOPIC)],
+    )
 
     clock_receiver = Node(
         package='ros2_bridge_node',
@@ -184,7 +231,9 @@ def generate_launch_description():
                 'topic.name': '/clock',
                 'topic.type': 'rosgraph_msgs/msg/Clock',
                 'topic.direction': 'from_corelink',
+                'corelink.stream_type': 'ros2_clock',
                 'corelink.data_protocol': protocol,
+                'corelink.peer_activity_timeout_s': 10,
                 'qos.reliability': 'reliable',
             },
         ],
@@ -224,6 +273,13 @@ def generate_launch_description():
             'sync_queue_size': queue,
             'qos': qos,
             'publish_tf': True,
+            # The TUM sequence has sections where F2M loses tracking. Reset
+            # immediately so later good frames can initialize a new odometry
+            # segment instead of returning quality=0 for the rest of the bag.
+            'Odom/ResetCountdown': '1',
+            # The short/blurred sequence often has 10-19 geometrically valid
+            # inliers. Twenty is unnecessarily strict for this demo dataset.
+            'Vis/MinInliers': '10',
             # Nothing external to wait for -- the tf tree is produced here.
             'wait_for_transform': 0.0,
         }],
@@ -244,8 +300,18 @@ def generate_launch_description():
             condition=condition,
             parameters=[common, {
                 'frame_id': frame_id,
-                'odom_frame_id': 'odom',
+                # Empty means subscribe to nav_msgs/Odometry directly. Using
+                # odom_frame_id='odom' instead made rtabmap query TF before
+                # rgbd_odometry had published the pose for the same image,
+                # producing a long run of extrapolation-into-future rejects.
+                'odom_frame_id': '',
                 'subscribe_rgbd': True,
+                # Synchronize mapping with the odometry result for the same
+                # RGB-D frame. Without this, rtabmap and rgbd_odometry race on
+                # /rgbd_image: rtabmap can query TF before odometry publishes
+                # that frame's odom->camera transform, and wait=0 rejects it as
+                # an extrapolation into the future.
+                'subscribe_odom_info': True,
                 'subscribe_depth': False,
                 'subscribe_scan': False,
                 'approx_sync': True,
@@ -257,6 +323,7 @@ def generate_launch_description():
             remappings=[
                 ('rgbd_image', '/rgbd_image'),
                 ('odom', '/odom'),
+                ('odom_info', '/odom_info'),
             ],
             arguments=arguments,
         )
@@ -267,4 +334,5 @@ def generate_launch_description():
 
     return LaunchDescription(
         args + receivers
-        + [clock_receiver, rgbd_sync, rgbd_odometry, rtabmap_fresh, rtabmap_resume])
+        + [rgb_decoder, depth_decoder, clock_receiver, rgbd_sync, rgbd_odometry,
+           rtabmap_fresh, rtabmap_resume])

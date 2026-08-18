@@ -10,16 +10,10 @@ Typical use with a replayed bag (in another shell):
     ros2 launch ros2_bridge_node robot_senders.launch.py \
         credentials_file:=/path/to/config/credentials.yaml
 
---rate 0.2 turns the bag's 30 Hz into 6 Hz on the wire, matching the
-640x480x6 profile docker-compose.yml runs the RealSense at. Note it does not
-decimate: all 30 Hz frames are still sent, just stretched out, so the
-inter-frame baseline stays 30 Hz-dense. Fine for transport measurements,
-not equivalent to true 6 Hz sampling for SLAM.
-
-Pacing defaults assume that 6 Hz wire rate. A 921,600-byte RGB frame is ~57
-fragments at 16 KB, so the gap is (166667 us / 57) / 2 ~ 1400 us; depth is
-614,400 bytes ~ 38 fragments -> ~2100 us. Raise `rate` and these must come
-down proportionally or the pacer queue overflows.
+The bridge JPEG-compresses RGB and losslessly compresses depth. It does not
+independently decimate the synchronized camera topics by default; the camera
+or bag supplies ~6 Hz, while the fragment pacer is sized for 6 Hz. /clock is
+never throttled because simulated time must advance smoothly.
 """
 
 import os
@@ -27,7 +21,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, Shutdown
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -35,6 +29,8 @@ from launch_ros.parameter_descriptions import ParameterValue
 RGB_TOPIC = '/camera/camera/color/image_raw'
 DEPTH_TOPIC = '/camera/camera/aligned_depth_to_color/image_raw'
 INFO_TOPIC = '/camera/camera/color/camera_info'
+RGB_COMPRESSED_TOPIC = RGB_TOPIC + '/compressed'
+DEPTH_COMPRESSED_TOPIC = DEPTH_TOPIC + '/compressedDepth'
 
 
 def generate_launch_description():
@@ -48,13 +44,21 @@ def generate_launch_description():
     reliability = LaunchConfiguration('reliability')
     queue_max = ParameterValue(
         LaunchConfiguration('pacing_queue_max'), value_type=int)
+    auto_rate = ParameterValue(
+        LaunchConfiguration('auto_target_rate_hz'), value_type=float)
+    forward_rate = ParameterValue(
+        LaunchConfiguration('forward_rate_hz'), value_type=float)
+    auto_reserve = ParameterValue(
+        LaunchConfiguration('auto_reserve_fraction'), value_type=float)
 
-    def sender(name, topic, msgtype, pacing_arg):
+    def sender(name, topic, msgtype, pacing_arg, stream_type=None,
+               condition=None):
         return Node(
             package='ros2_bridge_node',
             executable='ros2_bridge_node',
             name=name,
             output='screen',
+            condition=condition,
             on_exit=Shutdown(reason=f'{name} exited'),
             parameters=[
                 params_file,
@@ -63,10 +67,14 @@ def generate_launch_description():
                     'topic.name': topic,
                     'topic.type': msgtype,
                     'topic.direction': 'to_corelink',
+                    'topic.max_rate': forward_rate,
+                    'corelink.stream_type': stream_type or topic,
                     'corelink.data_protocol': protocol,
                     'qos.reliability': reliability,
                     'send.pacing_us': ParameterValue(
                         LaunchConfiguration(pacing_arg), value_type=int),
+                    'send.auto_target_rate_hz': auto_rate,
+                    'send.auto_reserve_fraction': auto_reserve,
                     'send.pacing_queue_max': queue_max,
                 },
             ],
@@ -83,14 +91,32 @@ def generate_launch_description():
             'reliability', default_value='best_effort',
             description='Must match the server launch, or no data flows'),
         DeclareLaunchArgument(
-            'rgb_pacing_us', default_value='1400',
-            description='Fragment gap for RGB (~57 fragments/frame at 6 Hz)'),
+            'rgb_pacing_us', default_value='0',
+            description='Manual override; 0 uses automatic pacing'),
         DeclareLaunchArgument(
-            'depth_pacing_us', default_value='2100',
-            description='Fragment gap for depth (~38 fragments/frame at 6 Hz)'),
+            'depth_pacing_us', default_value='0',
+            description='Manual override; 0 uses automatic pacing'),
         DeclareLaunchArgument(
             'info_pacing_us', default_value='0',
-            description='CameraInfo is a single fragment; no pacing needed'),
+            description='Manual override; 0 uses automatic pacing'),
+        DeclareLaunchArgument(
+            'forward_rate_hz', default_value='0.0',
+            description='Optional independent throttle; 0 preserves RGB-D timestamp pairing'),
+        DeclareLaunchArgument(
+            'auto_target_rate_hz', default_value='6.0',
+            description='Expected forwarded frame rate used by automatic pacing'),
+        DeclareLaunchArgument(
+            'compress_rgb', default_value='true',
+            description='JPEG-compress RGB before Corelink; depth remains lossless raw'),
+        DeclareLaunchArgument(
+            'compress_depth', default_value='true',
+            description='Losslessly compress depth as PNG before Corelink'),
+        DeclareLaunchArgument(
+            'jpeg_quality', default_value='90',
+            description='JPEG quality (1-100); 90 is the mapping baseline'),
+        DeclareLaunchArgument(
+            'auto_reserve_fraction', default_value='0.10',
+            description='Fraction of each frame period reserved as headroom'),
         DeclareLaunchArgument(
             'pacing_queue_max', default_value='256',
             description='~4 RGB frames of slack; the 128 default is under 3'),
@@ -98,10 +124,43 @@ def generate_launch_description():
             'bridge_clock', default_value='false',
             description='Send /clock too, for a server running use_sim_time'),
 
+        # image_transport publishes the encoded message on
+        # <out>/compressed. Keeping this outside the bridge means Corelink
+        # continues to carry ordinary serialized ROS messages.
+        Node(
+            package='image_transport', executable='republish',
+            name='rgb_jpeg_encoder', output='screen',
+            condition=IfCondition(LaunchConfiguration('compress_rgb')),
+            arguments=['raw', 'compressed'],
+            remappings=[('in', RGB_TOPIC),
+                        ('out/compressed', RGB_COMPRESSED_TOPIC)],
+            parameters=[{
+                'out.jpeg_quality': ParameterValue(
+                    LaunchConfiguration('jpeg_quality'), value_type=int),
+            }],
+        ),
+        sender('color_image_sender', RGB_COMPRESSED_TOPIC,
+               'sensor_msgs/msg/CompressedImage', 'rgb_pacing_us',
+               stream_type=RGB_TOPIC,
+               condition=IfCondition(LaunchConfiguration('compress_rgb'))),
         sender('color_image_sender', RGB_TOPIC,
-               'sensor_msgs/msg/Image', 'rgb_pacing_us'),
+               'sensor_msgs/msg/Image', 'rgb_pacing_us',
+               condition=UnlessCondition(LaunchConfiguration('compress_rgb'))),
+        Node(
+            package='image_transport', executable='republish',
+            name='depth_png_encoder', output='screen',
+            condition=IfCondition(LaunchConfiguration('compress_depth')),
+            arguments=['raw', 'compressedDepth'],
+            remappings=[('in', DEPTH_TOPIC),
+                        ('out/compressedDepth', DEPTH_COMPRESSED_TOPIC)],
+        ),
+        sender('depth_image_sender', DEPTH_COMPRESSED_TOPIC,
+               'sensor_msgs/msg/CompressedImage', 'depth_pacing_us',
+               stream_type=DEPTH_TOPIC,
+               condition=IfCondition(LaunchConfiguration('compress_depth'))),
         sender('depth_image_sender', DEPTH_TOPIC,
-               'sensor_msgs/msg/Image', 'depth_pacing_us'),
+               'sensor_msgs/msg/Image', 'depth_pacing_us',
+               condition=UnlessCondition(LaunchConfiguration('compress_depth'))),
         sender('camera_info_sender', INFO_TOPIC,
                'sensor_msgs/msg/CameraInfo', 'info_pacing_us'),
 
@@ -119,8 +178,12 @@ def generate_launch_description():
                     'topic.name': '/clock',
                     'topic.type': 'rosgraph_msgs/msg/Clock',
                     'topic.direction': 'to_corelink',
+                    'corelink.stream_type': 'ros2_clock',
                     'corelink.data_protocol': protocol,
-                    'qos.reliability': 'reliable',
+                    # rosbag2's /clock publisher uses best-effort QoS. A
+                    # reliable subscription is incompatible and receives no
+                    # clock messages at all.
+                    'qos.reliability': 'best_effort',
                 },
             ],
         ),

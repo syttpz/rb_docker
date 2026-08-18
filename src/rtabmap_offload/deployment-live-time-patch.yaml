@@ -1,0 +1,6 @@
+# Restore normal wall-clock operation for a live RealSense/robot run:
+#
+#   kubectl patch deployment rtabmap-offload -n hsrn-robot \
+#     --type=json --patch-file deployment-live-time-patch.yaml
+- op: remove
+  path: /spec/template/spec/containers/0/args

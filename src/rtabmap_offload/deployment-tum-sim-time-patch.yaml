@@ -1,0 +1,22 @@
+# Strategic-merge patch for replaying a historical rosbag such as TUM.
+# Apply only for bag tests:
+#
+#   kubectl patch deployment rtabmap-offload -n hsrn-robot \
+#     --patch-file deployment-tum-sim-time-patch.yaml
+#
+# This preserves the image, resources, PVC, and all other container fields.
+# It only overrides the image CMD arguments. The local senders must bridge
+# /clock too (run_robot_senders.sh with BRIDGE_CLOCK=1), and ros2 bag play must
+# use --clock.
+spec:
+  template:
+    spec:
+      containers:
+        - name: rtabmap-offload
+          args:
+            - ros2
+            - launch
+            - rtabmap_offload
+            - offload.launch.py
+            - use_sim_time:=true
+            - bridge_clock:=true

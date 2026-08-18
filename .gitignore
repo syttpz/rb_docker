@@ -9,6 +9,13 @@ compile_commands.json
 src/maps/*
 !src/maps/.gitkeep
 
+# rtabmap databases from offload runs -- large binary experiment output
+*.db
+
+# python bytecode from launch files
+__pycache__/
+*.pyc
+
 # downloaded/converted test rosbags -- multi-GB, re-fetchable via datasets/README.md
 datasets/*
 !datasets/README.md

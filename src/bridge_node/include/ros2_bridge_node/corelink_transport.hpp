@@ -20,6 +20,7 @@ class CorelinkTransport
 {
 public:
     using ReadyCallback = std::function<void(bool ok, const std::string &message)>;
+    using DisconnectCallback = std::function<void(const std::string &message)>;
     using StreamReadyCallback = std::function<void(corelink::core::network::channel_id_type channel_id)>;
     using ReceiveCallback = std::function<void(
             const corelink::utils::json &headers,
@@ -46,7 +47,13 @@ public:
     // once (from Corelink's internal event-loop thread, not the caller's
     // thread) with ok=true once authentication succeeds, or ok=false on
     // any failure along the way.
-    void connect(ReadyCallback on_ready);
+    void connect(ReadyCallback on_ready, DisconnectCallback on_disconnect = nullptr);
+
+    // Keep the authenticated control WebSocket alive. This is separate from
+    // the empty UDP data-channel packet used for NAT traversal: without the
+    // control plane, a long-lived receiver cannot learn about senders created
+    // later and therefore never issues subscribe.
+    void keepControlAlive(ReadyCallback on_result);
 
     // Creates a sender stream (workspace/stream_type == ROS2 topic name by
     // convention) using the given data-channel protocol. on_ready fires

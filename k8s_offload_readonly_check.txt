@@ -1,0 +1,68 @@
+# RTAB-Map offload: read-only Kubernetes checks
+#
+# These commands only query Kubernetes API objects and logs. They do NOT use:
+# apply, edit, patch, delete, scale, rollout restart, exec, cp, or secret reads.
+#
+# Run from a shell that already has access to the `hsrn` kubectl context:
+#
+#   bash k8s_offload_readonly_check.txt 2>&1 | tee k8s_offload_readonly_output.txt
+#
+# Then send back `k8s_offload_readonly_output.txt`.
+
+set -u
+
+echo '===== 1. CURRENT CONTEXT ====='
+kubectl config current-context
+
+echo '===== 2. DEPLOYMENT STATUS ====='
+kubectl get deployment rtabmap-offload \
+  --namespace hsrn-robot \
+  --output wide
+
+echo '===== 3. POD STATUS ====='
+kubectl get pods \
+  --namespace hsrn-robot \
+  --selector app=rtabmap-offload \
+  --output wide
+
+echo '===== 4. PVC STATUS ====='
+kubectl get pvc rtabmap-offload-data \
+  --namespace hsrn-robot \
+  --output wide
+
+echo '===== 5. DEPLOYMENT DESCRIPTION AND EVENTS ====='
+kubectl describe deployment rtabmap-offload \
+  --namespace hsrn-robot
+
+echo '===== 6. POD DESCRIPTION AND EVENTS ====='
+kubectl describe pods \
+  --namespace hsrn-robot \
+  --selector app=rtabmap-offload
+
+echo '===== 7. CURRENT CONTAINER LOG (LAST 1000 LINES) ====='
+kubectl logs \
+  --namespace hsrn-robot \
+  --selector app=rtabmap-offload \
+  --container rtabmap-offload \
+  --tail 1000 \
+  --timestamps \
+  --prefix
+
+echo '===== 8. PREVIOUS CONTAINER LOG, IF IT RESTARTED ====='
+# Failure here is harmless when there is no previous container instance.
+kubectl logs \
+  --namespace hsrn-robot \
+  --selector app=rtabmap-offload \
+  --container rtabmap-offload \
+  --previous \
+  --tail 1000 \
+  --timestamps \
+  --prefix || true
+
+echo '===== 9. RECENT NAMESPACE EVENTS ====='
+kubectl get events \
+  --namespace hsrn-robot \
+  --field-selector involvedObject.kind=Pod \
+  --sort-by=.metadata.creationTimestamp
+
+echo '===== END ====='

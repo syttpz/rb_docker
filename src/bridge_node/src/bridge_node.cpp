@@ -44,11 +44,14 @@ rclcpp::QoS qosFromParams(int64_t depth, const std::string &reliability)
 // create ros2_bridge_node  
 BridgeNode::BridgeNode() : rclcpp::Node("ros2_bridge_node")
 {
-    // topicname = streamtype
     m_topic_name = declare_parameter<std::string>("topic.name", "/chatter");
     m_topic_type = declare_parameter<std::string>("topic.type", "std_msgs/msg/String");
     m_direction = declare_parameter<std::string>("topic.direction", "to_corelink");
     m_workspace = declare_parameter<std::string>("corelink.workspace", "Chalktalk");
+    // Keep the historical topic-name mapping by default, while allowing ROS
+    // names with special semantics (notably /clock) to use an unambiguous
+    // Corelink control-plane type.
+    m_stream_type = declare_parameter<std::string>("corelink.stream_type", m_topic_name);
 
     const auto endpoint = declare_parameter<std::string>("corelink.endpoint", "corelink.hpc.nyu.edu");
     const auto port = static_cast<uint16_t>(declare_parameter<int>("corelink.port", 20012));
@@ -61,14 +64,22 @@ BridgeNode::BridgeNode() : rclcpp::Node("ros2_bridge_node")
     m_max_rate_hz = declare_parameter<double>("topic.max_rate", 0.0);
     m_diag_packet_sizes = declare_parameter<bool>("diag.packet_sizes", false);
 
-    // pacing_us ~ (frame period / fragment count) / 2, e.g. 5 Hz
-    // and 58 fragments -> 200000/58/2 ~ 1700.
     m_pacing_us = declare_parameter<int64_t>("send.pacing_us", 0);
-    m_pacer_queue_max = static_cast<std::size_t>(declare_parameter<int>("send.pacing_queue_max", 128));
+    m_auto_target_rate_hz = declare_parameter<double>("send.auto_target_rate_hz", 0.0);
+    m_auto_reserve_fraction = declare_parameter<double>("send.auto_reserve_fraction", 0.1);
+    const auto pacer_queue_max = declare_parameter<int>("send.pacing_queue_max", 128);
+    if (m_pacing_us < 0 || m_auto_target_rate_hz < 0.0 ||
+        m_auto_reserve_fraction < 0.0 || m_auto_reserve_fraction >= 1.0 ||
+        pacer_queue_max <= 0)
+    {
+        throw std::invalid_argument("Invalid send pacing parameters");
+    }
+    m_pacer_queue_max = static_cast<std::size_t>(pacer_queue_max);
 
     // 10 s against a 30 s conntrack timeout -- 3x margin, and one empty packet
     // every 10 s per stream is nothing next to the image traffic.
     m_keepalive_s = declare_parameter<int>("corelink.keepalive_s", 10);
+    m_peer_activity_timeout_s = declare_parameter<int>("corelink.peer_activity_timeout_s", 0);
 
     if (m_workspace.empty())
     {
@@ -99,8 +110,9 @@ BridgeNode::BridgeNode() : rclcpp::Node("ros2_bridge_node")
                     RCLCPP_FATAL(get_logger(), "Corelink connect failed: %s", message.c_str());
                     return;
                 }
-                RCLCPP_INFO(get_logger(), "Corelink authenticated. Setting up '%s' (%s)...",
-                            m_topic_name.c_str(), m_direction.c_str());
+                RCLCPP_INFO(get_logger(),
+                            "Corelink authenticated. Setting up ROS topic '%s' as stream type '%s' (%s)...",
+                            m_topic_name.c_str(), m_stream_type.c_str(), m_direction.c_str());
 
                 if (m_direction == "to_corelink")
                 {
@@ -110,7 +122,25 @@ BridgeNode::BridgeNode() : rclcpp::Node("ros2_bridge_node")
                 {
                     setupFromCorelink();
                 }
+            },
+            [this](const std::string &message)
+            {
+                if (m_direction == "from_corelink" && rclcpp::ok())
+                {
+                    failReceiver(message);
+                }
             });
+}
+
+void BridgeNode::failReceiver(const std::string &reason)
+{
+    if (m_receiver_failed.exchange(true))
+    {
+        return;
+    }
+    RCLCPP_FATAL(get_logger(), "%s; exiting so the supervisor can restart the receiver.",
+                 reason.c_str());
+    rclcpp::shutdown();
 }
 
 void BridgeNode::setupToCorelink()
@@ -121,7 +151,7 @@ void BridgeNode::setupToCorelink()
 
     m_transport->createSender(
             m_workspace,
-            m_topic_name,
+            m_stream_type,
             data_protocol,
             [this, qos](corelink::core::network::channel_id_type channel_id)
             {
@@ -130,10 +160,21 @@ void BridgeNode::setupToCorelink()
                             static_cast<unsigned long long>(channel_id), m_topic_name.c_str());
 
                 // m_data_channel_id, which only becomes valid now.
-                if (m_pacing_us > 0 && !m_pacer_thread.joinable())
+                if ((m_pacing_us > 0 || m_auto_target_rate_hz > 0.0) &&
+                    !m_pacer_thread.joinable())
                 {
-                    RCLCPP_INFO(get_logger(), "Pacing fragments %ld us apart (queue cap %zu fragments).",
-                                static_cast<long>(m_pacing_us), m_pacer_queue_max);
+                    if (m_pacing_us > 0)
+                    {
+                        RCLCPP_INFO(get_logger(), "Manual pacing: fragments %ld us apart (queue cap %zu).",
+                                    static_cast<long>(m_pacing_us), m_pacer_queue_max);
+                    }
+                    else
+                    {
+                        RCLCPP_INFO(get_logger(),
+                                    "Automatic pacing: %.3f fps, %.1f%% reserve (queue cap %zu).",
+                                    m_auto_target_rate_hz, m_auto_reserve_fraction * 100.0,
+                                    m_pacer_queue_max);
+                    }
                     m_pacer_thread = std::thread(&BridgeNode::pacerLoop, this);
                 }
 
@@ -158,7 +199,7 @@ void BridgeNode::setupFromCorelink()
 
     m_transport->createReceiver(
             m_workspace,
-            m_topic_name,
+            m_stream_type,
             data_protocol,
             [this](const corelink::utils::json &headers, const std::vector<uint8_t> &data)
             {
@@ -171,6 +212,43 @@ void BridgeNode::setupFromCorelink()
                 RCLCPP_INFO(get_logger(), "Corelink receiver stream ready (channel %llu). Publishing '%s' locally.",
                             static_cast<unsigned long long>(channel_id), m_topic_name.c_str());
                 startKeepalive();
+                startPeerActivityWatchdog();
+            });
+}
+
+void BridgeNode::startPeerActivityWatchdog()
+{
+    if (m_peer_activity_timeout_s <= 0 || m_activity_watchdog_timer)
+    {
+        return;
+    }
+
+    const auto qos = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort();
+    m_activity_publisher = create_publisher<std_msgs::msg::Empty>("/corelink_bridge/activity", qos);
+    m_activity_subscription = create_subscription<std_msgs::msg::Empty>(
+            "/corelink_bridge/activity", qos,
+            [this](std_msgs::msg::Empty::ConstSharedPtr)
+            {
+                if (!m_received_data.load() && !m_peer_watchdog_armed)
+                {
+                    m_peer_watchdog_deadline = std::chrono::steady_clock::now() +
+                            std::chrono::seconds(m_peer_activity_timeout_s);
+                    m_peer_watchdog_armed = true;
+                    RCLCPP_WARN(get_logger(),
+                            "Another Corelink stream is active; waiting %ld s for the first '%s' frame.",
+                            static_cast<long>(m_peer_activity_timeout_s), m_topic_name.c_str());
+                }
+            });
+    m_activity_watchdog_timer = create_wall_timer(
+            std::chrono::seconds(1),
+            [this]
+            {
+                if (m_peer_watchdog_armed && !m_received_data.load() &&
+                    std::chrono::steady_clock::now() >= m_peer_watchdog_deadline)
+                {
+                    failReceiver("Other Corelink streams are active but no data arrived for '" +
+                                 m_topic_name + "' (likely missed new-sender event)");
+                }
             });
 }
 
@@ -196,6 +274,14 @@ void BridgeNode::startKeepalive()
                     return;
                 }
                 m_transport->sendData(m_data_channel_id, std::vector<uint8_t>());
+                m_transport->keepControlAlive(
+                        [this](bool ok, const std::string &message)
+                        {
+                            if (!ok && rclcpp::ok())
+                            {
+                                failReceiver("Corelink control keepalive failed: " + message);
+                            }
+                        });
             });
 
     // Runs during rclcpp::shutdown(), i.e. before the node and its transport
@@ -239,7 +325,17 @@ void BridgeNode::onLocalMessage(std::shared_ptr<rclcpp::SerializedMessage> messa
 
 void BridgeNode::dispatchFragments(std::vector<std::vector<uint8_t>> &&packets)
 {
-    if (m_pacing_us <= 0)
+    int64_t gap_us = m_pacing_us;
+    if (gap_us == 0 && m_auto_target_rate_hz > 0.0 && !packets.empty())
+    {
+        gap_us = calculatePacingUs(m_auto_target_rate_hz,
+                                   m_auto_reserve_fraction, packets.size());
+        RCLCPP_DEBUG(get_logger(), "Auto pacing %zu fragments at %ld us (%.3f Hz, %.1f%% reserve).",
+                     packets.size(), static_cast<long>(gap_us), m_auto_target_rate_hz,
+                     m_auto_reserve_fraction * 100.0);
+    }
+
+    if (gap_us <= 0)
     {
         for (auto &packet : packets)
         {
@@ -261,17 +357,16 @@ void BridgeNode::dispatchFragments(std::vector<std::vector<uint8_t>> &&packets)
 
     for (auto &packet : packets)
     {
-        m_pacer_queue.push_back(std::move(packet));
+        m_pacer_queue.push_back(PacedFragment{std::move(packet), gap_us});
     }
     m_pacer_cv.notify_one();
 }
 
 void BridgeNode::pacerLoop()
 {
-    const auto gap = std::chrono::microseconds(m_pacing_us);
     for (;;)
     {
-        std::vector<uint8_t> packet;
+        PacedFragment item;
         {
             std::unique_lock<std::mutex> lock(m_pacer_mutex);
             m_pacer_cv.wait(lock, [this] { return m_pacer_stop || !m_pacer_queue.empty(); });
@@ -279,12 +374,15 @@ void BridgeNode::pacerLoop()
             {
                 return;
             }
-            packet = std::move(m_pacer_queue.front());
+            item = std::move(m_pacer_queue.front());
             m_pacer_queue.pop_front();
         }
 
-        m_transport->sendData(m_data_channel_id, std::move(packet));
-        std::this_thread::sleep_for(gap);
+        m_transport->sendData(m_data_channel_id, std::move(item.packet));
+        if (item.gap_after_us > 0)
+        {
+            std::this_thread::sleep_for(std::chrono::microseconds(item.gap_after_us));
+        }
     }
 }
 
@@ -358,6 +456,11 @@ void BridgeNode::onCorelinkMessage(const corelink::utils::json & /*headers*/, co
     std::memcpy(raw.buffer, frame->data(), frame->size());
     raw.buffer_length = frame->size();
     m_local_publisher->publish(serialized);
+    m_received_data = true;
+    if (m_activity_publisher)
+    {
+        m_activity_publisher->publish(std_msgs::msg::Empty());
+    }
 }
 
 } // namespace ros2_bridge_node

@@ -12,6 +12,7 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
 
 # pactched local corelink_cpp client
 set(CORELINK_CPP_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/corelink_cpp" CACHE PATH
@@ -45,6 +46,7 @@ target_link_libraries(ros2_bridge_node
 
 ament_target_dependencies(ros2_bridge_node
   rclcpp
+  std_msgs
 )
 
 install(TARGETS ros2_bridge_node

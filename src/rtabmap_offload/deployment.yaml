@@ -57,7 +57,7 @@ spec:
           # Pinned by digest so a rebuilt tag can never silently change what a
           # run was measured against (md/thesis-research-plan.md §7).
           # Drop the @sha256 suffix if you just want "whatever is on that tag".
-          image: eddyhu217/offload:2026-08-11-keepalive@sha256:84e979d7f179e4559ec8893eae4b0184f7734cd1ee6c2e656c059b2832cac376
+          image: eddyhu217/offload:2026-08-17-control-keepalive@sha256:d945644054e45838dda4b74e20fdb549d1065ac9f5337a54f38ebd26a0f60ce6
           imagePullPolicy: IfNotPresent
 
           env:

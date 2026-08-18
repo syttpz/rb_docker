@@ -20,7 +20,8 @@ compile_commands.json
 **/config/credentials.yaml
 
 md/
-teleop/
+# NOTE: teleop/ is NOT excluded -- the Dockerfile `COPY teleop/ /robot/teleop/`
+# needs it in the build context, and the teleop compose service launches from it.
 *.md
 *.swp
 *~

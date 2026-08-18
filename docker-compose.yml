@@ -49,6 +49,30 @@ services:
     depends_on:
       - robot
 
+  # RPLIDAR A2M12 -> /scan (nav2 obstacle source / Foxglove LaserScan).
+  # Launched by absolute path, so it needs no colcon build -- the launch file
+  # only starts rplidar_ros + tf2_ros, both installed under /opt/ros. Same
+  # pattern as the teleop service. ./src is mounted only so the path resolves.
+  # serial_port defaults to the /dev/rplidar udev symlink; override with
+  #   command: ... serial_port:=/dev/ttyUSB0
+  # if 99-rplidar.rules is not installed on the host.
+  lidar:
+    image: eddyhu217/dt_env:rb
+    container_name: rplidar
+    network_mode: host
+    privileged: true
+    volumes:
+      - /dev:/dev
+      - ./src:/root/ros2_ws/src
+    environment:
+      - ROS_DOMAIN_ID=0
+    restart: unless-stopped
+    command: >
+      ros2 launch /root/ros2_ws/src/create3_nav/launch/rplidar_a2m12.launch.py
+      serial_port:=/dev/rplidar
+    depends_on:
+      - robot
+
   # foxglove websocket bridge -> connect Foxglove to ws://<pi-ip>:8765
   foxglove:
     image: eddyhu217/dt_env:rb

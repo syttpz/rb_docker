@@ -9,9 +9,12 @@ usable by anything downstream (nav2 costmaps, slam_toolbox).
 A2M12-specific facts baked into the defaults:
   * serial_baudrate = 256000. The older A2M8 is 115200; using the wrong baud
     is the usual reason the device authenticates but publishes no /scan.
-  * scan_mode = Sensitivity -- the A2M12's long-range/high-quality mode. The
-    stock rplidar_ros a2m12 launch declares this but never passes it; we pass
-    it. Valid A2M12 modes: Standard | Sensitivity | Boost.
+  * scan_mode is left EMPTY by default, which makes the driver use the mode
+    the firmware reports as default. Forcing a named mode (e.g. Sensitivity)
+    is rejected as "scan mode not supported / Can not start scan: 80008001"
+    on units whose firmware doesn't advertise that exact name -- which is why
+    the stock rplidar_ros a2m12 launch declares Sensitivity but never passes
+    it. Override with scan_mode:=Standard|Sensitivity|Boost only if needed.
 
 Serial port: defaults to /dev/ttyUSB0. Prefer the stable /dev/rplidar symlink
 from config/99-rplidar.rules once that udev rule is installed on the host, so a
@@ -56,8 +59,10 @@ def generate_launch_description():
         DeclareLaunchArgument('inverted', default_value='false'),
         DeclareLaunchArgument('angle_compensate', default_value='true'),
         DeclareLaunchArgument(
-            'scan_mode', default_value='Sensitivity',
-            description='A2M12: Standard | Sensitivity | Boost'),
+            'scan_mode', default_value='',
+            description='Empty = driver default (recommended). Named modes '
+                        '(Standard|Sensitivity|Boost) fail on units that do '
+                        'not advertise that exact name'),
         DeclareLaunchArgument(
             'scan_topic', default_value='/scan',
             description='Output LaserScan topic (nav2/slam_toolbox default is /scan)'),

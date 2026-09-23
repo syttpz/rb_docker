@@ -1,11 +1,3 @@
-#!/usr/bin/env bash
-# ROBOT side: subscribe to the local compressed-image topic and push it INTO
-# corelink (topic.direction=to_corelink). Builds first unless --no-build.
-#
-#   ./run_robot.sh                 # build + run, compressed image over UDP
-#   ./run_robot.sh --no-build      # skip the build step
-#   PROTO=tcp ./run_robot.sh       # override transport (udp default)
-#   TOPIC=/foo TYPE=std_msgs/msg/String ./run_robot.sh   # bridge a different topic
 set -eo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

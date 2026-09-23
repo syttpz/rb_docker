@@ -1,19 +1,3 @@
-#!/usr/bin/env bash
-# ROBOT side, RGB-D: push color + aligned depth + camera_info INTO corelink,
-# i.e. the three streams rtabmap_offload/offload.launch.py receives.
-#
-# This is the plain-cmake counterpart of robot_senders.launch.py -- use the
-# launch file if the workspace is colcon-built, this script if you only ran
-# build.sh (which produces ./build/ros2_bridge_node and installs nothing).
-#
-#   ./run_robot_senders.sh              # build + run
-#   ./run_robot_senders.sh --no-build   # skip the build step
-#   RATE=0.2 ./run_robot_senders.sh     # also replay a bag at that rate
-#   BAG=../../datasets/fr1_desk_rs RATE=0.2 ./run_robot_senders.sh
-#   BRIDGE_CLOCK=1 BAG=... ./run_robot_senders.sh  # historical bag replay
-#
-# RGB and depth are compressed; the source supplies ~6 Hz and independent
-# throttling is off so corresponding timestamps stay paired. /clock is free.
 set -eo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

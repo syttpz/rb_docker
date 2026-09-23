@@ -1,17 +1,5 @@
 #!/usr/bin/env bash
-#
-# exportmap.sh — export an assembled point cloud + mesh (PLY) from an
-# rtabmap database produced by startmapping.sh.
-#
-# RUN IT (inside the robot container):
-#     docker exec -it robot bash -lc '/root/ros2_ws/src/exportmap.sh'
-#   optionally pass a run folder or a specific database:
-#     ./src/exportmap.sh /root/ros2_ws/src/maps/map_20260728_120000
-#     ./src/exportmap.sh /root/ros2_ws/src/maps/map_20260728_120000/rtabmap.db
-#
-# With no argument, the newest map_* folder is used.
-# Output PLYs land next to the database (in the run folder).
-#
+
 set -o pipefail
 source /opt/ros/humble/setup.bash
 

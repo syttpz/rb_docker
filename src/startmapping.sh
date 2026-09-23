@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# Map with RealSense + rtabmap (rtabmap's own visual odometry)
-#
-# Usage:  ./startmapping.sh [--record]
-#   --record   also record a rosbag of camera/tf/odom/etc. into the run folder.
-#              Off by default (mapping still produces the rtabmap db + 2D grid).
 set -o pipefail
 
 RECORD=0

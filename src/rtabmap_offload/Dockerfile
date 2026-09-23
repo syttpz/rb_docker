@@ -1,11 +1,4 @@
 # Server-side offload image: Corelink receivers + RTAB-Map.
-#
-# Build from the REPO ROOT so the local working tree is what ends up in the
-# image (this replaced a `git clone --branch fragment`, which meant the image
-# never contained the code you were actually editing):
-#
-#   docker build -f src/rtabmap_offload/Dockerfile -t eddyhu217/offload:<tag> .
-#
 FROM --platform=linux/amd64 ros:humble-ros-base
 
 ENV DEBIAN_FRONTEND=noninteractive

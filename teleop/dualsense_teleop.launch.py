@@ -1,9 +1,4 @@
 #  DualSense bluetooth teleop: joy_node -> teleop_twist_joy -> /cmd_vel
-#
-#     ros2 launch /robot/teleop/dualsense_teleop.launch.py
-#
-#  optional: remap the output topic
-#     ros2 launch /robot/teleop/dualsense_teleop.launch.py cmd_vel_topic:=/diff_drive/cmd_vel
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess

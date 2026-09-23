@@ -1,18 +1,4 @@
 #!/usr/bin/env bash
-# Pull an RTAB-Map database off the k8s PVC onto this machine.
-#
-#   ./fetch_map.sh              # list what is on the volume
-#   ./fetch_map.sh save         # flush the running map and copy it here
-#   ./fetch_map.sh rtabmap_20260811-061430.db     # copy one by name
-#   OUT=~/maps ./fetch_map.sh save
-#
-# `save` calls RTAB-Map's /rtabmap/backup service, which writes working memory
-# out to the database, snapshots it to <db>.back, and reloads -- the pod keeps
-# running throughout. That snapshot is a closed, consistent file, unlike the
-# live .db which rtabmap still has open, so it is what gets copied.
-#
-# This matters because RTAB-Map otherwise only flushes on SIGTERM: during a run
-# the .db on the volume is nearly empty, and the map exists only in memory.
 set -eo pipefail
 
 NS="${NS:-hsrn-robot}"
